@@ -4,6 +4,7 @@ import { ObjectPool } from '../fx/ObjectPool.js';
 import { PoliceAI } from '../ai/PoliceAI.js';
 import { Civilian, Obstacle } from '../ai/Traffic.js';
 import { TankAI, Shells } from '../ai/TankAI.js';
+import { RoadWarnings } from '../fx/RoadWarnings.js';
 import { rand, randInt } from '../core/utils.js';
 
 const S = CONFIG.spawn, LANES = CONFIG.road.lanes;
@@ -33,6 +34,8 @@ export class Spawner {
     this.tanks = [];
     this.entities = [];
     this.shells = new Shells(game);
+    this.warnings = new RoadWarnings(game.scene);
+    this.barricades = []; // { z, blocked: [车道编号], signs: [地面预警] }
     this.reset();
   }
 
@@ -44,6 +47,8 @@ export class Spawner {
       list.length = 0;
     }
     this.shells.reset();
+    for (const b of this.barricades) this.clearBarricade(b);
+    this.barricades = [];
     this.nextBarricadeZ = 320;
     this.nextTankZ = 0;
     this.policeTimer = 2.5;
@@ -70,6 +75,7 @@ export class Spawner {
     const ctx = { player: p, fx: g.fx, game: g, hazards: this.entities, shells: this.shells };
     for (const e of this.entities) e.update(dt, ctx);
     this.shells.update(dt);
+    this.warnings.update(dt);
     this.cull(p);
   }
 
@@ -97,7 +103,7 @@ export class Spawner {
     const type = stars >= 2 && Math.random() < 0.1 + stars * 0.05 ? 'swat' : 'police';
     const cop = this.pools[type].get();
     const role = ROLES[this.roleIdx++ % ROLES.length];
-    cop.spawnChaser(this.scene, p.z - rand(34, 46), laneOffset(randInt(0, LANES - 1)), p.speed + 10, role);
+    cop.spawnChaser(this.scene, p.z - rand(34, 46), laneOffset(randInt(0, LANES - 1)), p.speed + 6, role);
     this.police.push(cop);
     this.rebuild();
   }
@@ -107,6 +113,7 @@ export class Spawner {
   }
 
   spawnCivilian(z) {
+    if (this.inBarricadeZone(z)) return; // 路障附近不刷民用车，保证安全通道畅通
     const lane = randInt(0, LANES - 1);
     if (!this.laneFree(z, laneOffset(lane), 14)) return;
     const c = this.pools.civilian.get();
@@ -115,15 +122,29 @@ export class Spawner {
     this.rebuild();
   }
 
-  /** 路障：警车横停 + 栏杆，留一条缺口；高星级有概率完全封死，只能冲刺撞过去 */
+  /**
+   * 路障生成：四车道里最多堵 maxBlocked（2）条，永远保留至少 2 条安全通道（相邻或分开都行）。
+   *   1. 按星级决定堵几条（1 星只堵 1 条），并用 min() 保证不超过上限
+   *   2. 洗牌后取前 N 条作为被堵车道 → 剩下的就是安全通道
+   *   3. 被堵车道放横停警车 / 栏杆，前面放雪糕筒提示“此路不通”
+   *   4. 清掉安全通道附近的民用车，避免通道被慢车堵死
+   *   5. 在被堵车道前方的地面放红色感叹号；UI 预警由 Game 根据 nextBarricade() 显示
+   */
   spawnBarricade(z, stars) {
-    const gap = stars >= 4 && Math.random() < 0.4 ? -1 : randInt(0, LANES - 1);
-    for (let i = 0; i < LANES; i++) {
+    const B = CONFIG.barricade;
+    const maxBlocked = Math.min(B.maxBlocked, LANES - 2); // 硬性规则：至少留 2 条
+    const want = stars <= 1 ? 1 : Math.random() < 0.35 + stars * 0.1 ? 2 : 1;
+    const count = Math.min(want, maxBlocked);
+
+    const lanes = [...Array(LANES).keys()];
+    for (let i = lanes.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
+    }
+    const blocked = lanes.slice(0, count).sort((a, b) => a - b);
+
+    for (const i of blocked) {
       const lat = laneOffset(i);
-      if (i === gap) {
-        for (const s of [-1, 1]) this.addStatic('cone', z - 5, lat + s * 1.5);
-        continue;
-      }
       if (Math.random() < 0.65) {
         const type = stars >= 2 && Math.random() < 0.3 ? 'swat' : 'police';
         const cop = this.pools[type].get();
@@ -132,8 +153,36 @@ export class Spawner {
       } else {
         this.addStatic('barrier', z, lat);
       }
+      this.addStatic('cone', z - 5, lat);
     }
+
+    // 清掉这段范围内、还在屏幕外的民用车
+    const [c0, c1] = B.clearTraffic;
+    for (const c of this.traffic) {
+      if (c.z > z + c0 && c.z < z + c1 && c.z > this.game.player.z + 60) c.removeMe = true;
+    }
+
+    const signs = [];
+    for (const i of blocked) for (const d of B.signOffsets) signs.push(this.warnings.place(z - d, laneOffset(i)));
+    this.barricades.push({ z, blocked, signs });
     this.rebuild();
+  }
+
+  inBarricadeZone(z) {
+    const [c0, c1] = CONFIG.barricade.clearTraffic;
+    return this.barricades.some((b) => z > b.z + c0 && z < b.z + c1);
+  }
+
+  /** 玩家前方 range 米内最近的路障（给 UI 预警用） */
+  nextBarricade(pz, range) {
+    let best = null;
+    for (const b of this.barricades) if (b.z > pz && b.z - pz < range && (!best || b.z < best.z)) best = b;
+    return best;
+  }
+
+  clearBarricade(b) {
+    for (const m of b.signs) this.warnings.release(m);
+    b.signs.length = 0;
   }
 
   addStatic(kind, z, lat) {
@@ -162,6 +211,12 @@ export class Spawner {
       }
     }
     if (changed) this.rebuild();
+    for (let i = this.barricades.length - 1; i >= 0; i--) {
+      if (this.barricades[i].z < p.z - 30) {
+        this.clearBarricade(this.barricades[i]);
+        this.barricades.splice(i, 1);
+      }
+    }
   }
 
   copsNear(p, dz, dl) {

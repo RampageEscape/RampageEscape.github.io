@@ -124,6 +124,13 @@ class Game {
     this.feel.shake.add(0.12);
   }
 
+  /** 被追尾/被侧挤（不是玩家失误）：只有轻微火花和极小的震动，不闪红、不扣血 */
+  onPlayerBumped(player) {
+    this.fx.impact(player.mesh.position, 0.35);
+    this.feel.shake.add(0.06);
+    // 这里可以接一个轻微的金属摩擦音效（目前项目还没有音频系统）
+  }
+
   onPlayerHit(damage) {
     this.feel.onPlayerHit(damage);
     this.hud.flash('#ff2a2a', 0.3);
@@ -175,6 +182,10 @@ class Game {
     this.distance = Math.max(this.distance, p.z);
     this.score += p.speed * dt * CONFIG.score.perMeter * (p.isDashing ? 2 : 1);
     if (this.comboTimer > 0 && (this.comboTimer -= dt) <= 0) this.combo = 0;
+
+    // 路障预警：前方 warnDistance 米内有路障就显示 UI 车道示意
+    const rb = this.spawner.nextBarricade(p.z, CONFIG.barricade.warnDistance);
+    this.hud.showRoadblock(rb ? rb.blocked : null);
 
     // 被捕判定：被 2 辆以上警车贴身包夹时，被捕条持续上涨
     const boxed = !p.isDashing && this.spawner.copsNear(p, 5.5, 5.5) >= 2;

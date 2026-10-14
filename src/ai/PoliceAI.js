@@ -3,7 +3,8 @@ import { CONFIG } from '../config.js';
 import { ROAD_HALF } from '../world/Road.js';
 import { Vehicle } from '../entities/Vehicle.js';
 import { makePoliceCar, makeSwat } from '../models/Models.js';
-import { clamp, damp, rand } from '../core/utils.js';
+import { clamp, damp, lerp, rand, smoothstep } from '../core/utils.js';
+import { classifyContact, pushApart } from '../systems/Collisions.js';
 
 /**
  * 警车 AI（普通警车 / 特警车 SWAT 共用）
@@ -32,6 +33,9 @@ export class PoliceAI extends Vehicle {
     this.role = role;
     this.ramTimer = rand(0.8, 2);
     this.skill = rand(0.55, 1); // 避障能力，低的容易被引诱撞车
+    this.refSpeed = speed; // 警车“感知到”的玩家速度（低通滤波）
+    this.closeTime = 0; // 在危险范围内黏了多久
+    this.backoff = 0; // 主动退让的剩余时间
   }
 
   spawnParked(scene, z, lateral, yaw) {
@@ -64,9 +68,9 @@ export class PoliceAI extends Vehicle {
 
     // 2) 按角色决定目标位置
     let desiredLat, desiredGap;
+    const ahead = rel > (this.length + player.length) / 2 + 1.5;
     if (this.role === 0) {
       desiredGap = 10;
-      const ahead = rel > (this.length + player.length) / 2 + 1.5;
       desiredLat = ahead ? predLat : flankLat; // 先从旁边超车，超过去再并线挡路
     } else if (this.role === 2) {
       desiredGap = this.ramTimer <= 0 ? 0 : -7;
@@ -76,12 +80,12 @@ export class PoliceAI extends Vehicle {
       desiredLat = flankLat;
     }
 
-    // 3) 纵向速度：P 控制追到目标间距，最高速度有上限 → 玩家冲刺时能甩开
-    let desiredSpeed = player.speed + clamp((player.z + desiredGap - this.z) * 1.4, -14, S.catchUp);
-    if (this.role === 0 && rel > 3 && Math.abs(this.lateral - player.lateral) < 2.5) {
-      desiredSpeed = Math.min(desiredSpeed, player.speed - 5); // 挡在前面刹车逼停
+    // 3) 纵向速度：橡皮筋机制（远快近慢）
+    const overtaking = this.role === 0 && !ahead; // 拦截者正在超车，不算“黏住”
+    let desiredSpeed = this.rubberBandSpeed(dt, player, desiredGap, overtaking);
+    if (this.role === 0 && ahead && this.backoff <= 0 && Math.abs(this.lateral - player.lateral) < 2.5) {
+      desiredSpeed = Math.min(desiredSpeed, this.refSpeed - 3); // 挡在前面轻踩刹车：看得见、躲得开
     }
-    desiredSpeed = Math.min(desiredSpeed, CONFIG.player.baseSpeed + S.catchUp + 6);
 
     // 4) 避障：找正前方最近的障碍物，从旁边绕开；两边都没空间就减速
     const look = (12 + Math.max(0, this.speed - 10) * 0.5) * this.skill;
@@ -115,45 +119,95 @@ export class PoliceAI extends Vehicle {
     }
     this.lateral = clamp(this.lateral + this.latVel * dt, -lim, lim);
 
-    const accel = desiredSpeed > this.speed ? 22 : 30;
+    // 加速柔和（不会“瞬移”追上来）；追逐范围内刹车和玩家一样灵敏，玩家急刹时不会冲上来
+    const nearPlayer = Math.abs(rel) < S.rubber.far;
+    const accel = desiredSpeed > this.speed ? 14 : nearPlayer ? CONFIG.player.brake + 2 : 20;
     this.speed += clamp(desiredSpeed - this.speed, -accel * dt, accel * dt);
     this.z += this.speed * dt;
     this.yawOffset = Math.atan2(this.latVel, Math.max(this.speed, 5)) * 0.8;
   }
 
-  /** 与玩家碰撞（由 Collisions 系统调用） */
+  /**
+   * 橡皮筋速度（返回目标速度）
+   *   距离 > far        → 玩家速度 + maxBoost：快速拉近，保持追逐压迫感
+   *   near < 距离 < far → 加成随距离平滑减小
+   *   距离 < near       → 危险范围：与玩家基本同速（-4 ~ +1.5），慢慢贴近，不会瞬间超车
+   *   黏住超过 stickTime → 主动退让 backoffTime 秒，给玩家脱战窗口
+   * 参照的玩家速度经过低通滤波：玩家突然加速/刹车时，警车反应慢半拍，可以被甩开。
+   */
+  rubberBandSpeed(dt, player, desiredGap, overtaking) {
+    const R = this.spec.rubber;
+    // 不对称反应：玩家加速时警车反应慢（能甩开），玩家减速时立刻跟着减（不会趁机冲上来）
+    const k = player.speed < this.refSpeed ? R.reaction * 6 : R.reaction;
+    this.refSpeed = damp(this.refSpeed, player.speed, k, dt);
+    const dist = player.z - this.z; // >0：警车在玩家后面
+    const near = Math.abs(dist) < R.near;
+    let rel;
+    if (this.backoff > 0) {
+      this.backoff -= dt;
+      // 在玩家后面/旁边 → 减速退后；已经在玩家前面 → 加速让开（不能刹车，否则玩家会撞上来）
+      rel = dist < -2 ? -R.backoffRel : R.backoffRel;
+    } else if (dist > R.far) {
+      rel = R.maxBoost;
+    } else if (dist > R.near) {
+      rel = lerp(R.nearMaxRel, R.maxBoost, smoothstep(R.near, R.far, dist));
+    } else {
+      const maxRel = this.role === 0 ? R.blockerRel : R.nearMaxRel;
+      rel = clamp((player.z + desiredGap - this.z) * 0.5, R.nearMinRel, maxRel);
+    }
+    // 黏住计时
+    if (near && !overtaking && this.backoff <= 0) {
+      this.closeTime += dt;
+      if (this.closeTime > R.stickTime) {
+        this.backoff = R.backoffTime;
+        this.closeTime = 0;
+      }
+    } else {
+      this.closeTime = Math.max(0, this.closeTime - dt);
+    }
+    let speed = Math.min(this.refSpeed + rel, R.absMax);
+    // 危险范围内的硬上限：绝不比玩家当前速度快超过 nearMaxRel（拦截者超车时用 blockerRel）
+    if (near && this.backoff <= 0) speed = Math.min(speed, player.speed + (this.role === 0 ? R.blockerRel : R.nearMaxRel));
+    return speed;
+  }
+
+  /**
+   * 与玩家碰撞（由 Collisions 系统调用）。原则：只惩罚玩家的主动失误。
+   *   冲刺中            → 警车被摧毁
+   *   被追尾 (rear)      → 不扣血，玩家被往前推一把
+   *   被警车侧面挤       → 不扣血，只横向推一下
+   *   正面撞上前车 / 自己变道撞上去 → 扣血
+   */
   onPlayerCollision(player, game) {
-    // 关键机制：玩家处于冲刺状态（碰撞标签 PlayerDash）→ 警车瞬间被摧毁
     if (player.collisionTag === 'PlayerDash') {
       this.explode(game, player);
       return;
     }
+    const c = classifyContact(player, this);
     if (this.mode === 'parked') {
-      // 没冲刺硬闯路障：扣大量血，警车被顶开
-      player.hit(CONFIG.barricade.damage, 0, 0.45);
+      // 路障警车是静止的，碰到它一定是玩家自己开过去的
+      const front = c.type === 'front';
+      player.hit(CONFIG.barricade.damage * (front ? 1 : 0.5), front ? 0 : -c.side * 0.6, front ? 0.45 : 0.8);
       this.knock(player, game, 0.5);
       return;
     }
-    const dz = player.z - this.z;
-    const sideHit = Math.abs(dz) < (this.colL + player.colL) * 0.35;
-    if (sideHit) {
-      const dir = Math.sign(player.lateral - this.lateral) || 1;
-      player.hit(this.spec.damage, dir * 0.8, 0.85);
-      this.latVel = -dir * 5;
-      this.lateral -= dir * 0.3;
-    } else if (dz > 0) {
-      // 警车从后面追尾
-      player.hit(this.spec.damage, 0, 1);
-      this.speed = player.speed - 10;
-      this.z = player.z - (this.colL + player.colL) / 2 - 0.3;
+    if (c.type === 'rear') {
+      player.bump(0, CONFIG.bump.rearBoost);
+      this.speed = player.speed - 6; // 警车被弹回去
+      game.onPlayerBumped(player);
+    } else if (c.type === 'side' && !c.playerAtFault) {
+      player.bump(-c.side, 0);
+      this.latVel = c.side * 4;
+      game.onPlayerBumped(player);
     } else {
-      // 玩家撞上前面的拦截警车
-      player.hit(this.spec.damage * 1.3, 0, 0.55);
-      this.speed = player.speed + 6;
-      this.z = player.z + (this.colL + player.colL) / 2 + 0.3;
+      const front = c.type === 'front';
+      player.hit(this.spec.damage * (front ? 1.3 : 1), front ? 0 : -c.side * 0.8, front ? 0.55 : 0.85);
+      if (front) this.speed = player.speed + 6;
+      else this.latVel = c.side * 5;
+      game.fx.impact(player.mesh.position, 0.6);
     }
+    pushApart(player, this, c);
     this.ramTimer = this.spec.ramCooldown;
-    game.fx.impact(player.mesh.position, 0.6);
   }
 
   /** 追捕中撞上别的东西（被玩家引诱去撞民用车、路障、坦克） */

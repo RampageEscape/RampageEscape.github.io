@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { laneOffset } from '../world/Road.js';
+import { laneOffset, nearestLane } from '../world/Road.js';
+import { classifyContact, pushApart } from '../systems/Collisions.js';
 import { Vehicle } from '../entities/Vehicle.js';
 import { makeCivilian, makeBarrier, makeCone } from '../models/Models.js';
 import { damp, rand } from '../core/utils.js';
@@ -41,17 +42,33 @@ export class Civilian extends Vehicle {
       if (next >= 0 && next < LANES) this.lane = next;
     }
     const goal = laneOffset(this.lane);
+    const prevLat = this.lateral;
     this.lateral = damp(this.lateral, goal, 2.5, dt);
+    this.latVel = dt > 0 ? (this.lateral - prevLat) / dt : 0; // 碰撞判定要用：谁在变道
     this.yawOffset = (goal - this.lateral) * 0.06;
     this.z += this.speed * dt;
     this.sync();
   }
 
   onPlayerCollision(player, game) {
-    const dash = player.collisionTag === 'PlayerDash';
-    if (!dash) player.hit(CONFIG.traffic.damage, -(Math.sign(this.lateral - player.lateral) || 1) * 0.6, 0.75);
-    this.knock(player, game, dash ? 1.2 : 0.6);
-    game.onPropSmashed(this, CONFIG.score.civilian);
+    if (player.collisionTag === 'PlayerDash') {
+      this.knock(player, game, 1.2);
+      game.onPropSmashed(this, CONFIG.score.civilian);
+      return;
+    }
+    const c = classifyContact(player, this);
+    if (c.playerAtFault) {
+      // 玩家追尾前车，或自己变道撞上 → 扣血
+      player.hit(CONFIG.traffic.damage, c.type === 'side' ? -c.side * 0.6 : 0, 0.75);
+      this.knock(player, game, 0.6);
+      game.onPropSmashed(this, CONFIG.score.civilian);
+    } else {
+      // 民用车自己变道挤过来 → 不扣血，民用车放弃变道退回去
+      player.bump(c.type === 'side' ? -c.side : 0, c.type === 'rear' ? CONFIG.bump.rearBoost : 0);
+      this.lane = nearestLane(this.lateral + c.side * CONFIG.road.laneWidth * 0.5);
+      pushApart(player, this, c);
+      game.onPlayerBumped(player);
+    }
   }
 }
 

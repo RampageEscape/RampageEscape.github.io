@@ -24,7 +24,7 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .bust > div { background: repeating-linear-gradient(90deg, #ff2a2a 0 8px, #2a5cff 8px 16px); width: 0; }
 
 #combo {
-  position: absolute; top: 90px; left: 0; right: 0; text-align: center;
+  position: absolute; top: calc(env(safe-area-inset-top) + 150px); left: 0; right: 0; text-align: center;
   font-size: 26px; color: #ffcf33; text-shadow: 0 3px 0 #a33a00, 0 0 18px rgba(255,140,0,.6);
 }
 
@@ -93,3 +93,21 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 }
 #lang-btn:hover { background: rgba(0,0,0,.6); }
 #lang-btn:active { transform: scale(.96); }
+
+/* 路障预警 */
+#roadblock {
+  position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 8px 14px 10px; border-radius: 12px; background: rgba(120, 0, 0, .55);
+  border: 2px solid #ff4a3a; box-shadow: 0 0 18px rgba(255, 40, 40, .5);
+  animation: rbPulse .5s ease-in-out infinite alternate;
+}
+.rb-title { font-size: 17px; color: #fff; text-shadow: 0 2px 0 #600; white-space: nowrap; }
+.rb-lanes { display: flex; gap: 5px; }
+.rb-lanes .lane {
+  width: 26px; height: 30px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
+  font: 15px/1 system-ui, sans-serif; font-weight: 800;
+}
+.rb-lanes .closed { background: #ff3b30; color: #fff; }
+.rb-lanes .open { background: #34c759; color: #fff; }
+@keyframes rbPulse { from { opacity: .75; } to { opacity: 1; } }

@@ -94,6 +94,23 @@ export class PlayerController {
     return true;
   }
 
+  /**
+   * 非玩家失误的碰撞（被追尾、被警车侧面挤）：不扣血、不进无敌帧，只推一把。
+   *  - speedBoost：被追尾时往前推，加到速度偏移量上，会在 1~2 秒内自然回落
+   *  - pushDir：被侧挤时横向推一下，但不改目标车道，车子会自己回正
+   */
+  bump(pushDir = 0, speedBoost = 0) {
+    if (!this.alive) return;
+    const B = CONFIG.bump;
+    if (pushDir) this.knockVel = pushDir * 8 * B.sidePush;
+    if (speedBoost) {
+      this.speedBias = Math.min(P.maxBias, this.speedBias + speedBoost);
+      const cap = P.maxSpeed * B.maxSpeedMul * (this.isDashing ? P.dash.speedMul : 1);
+      this.speed = Math.min(this.speed + speedBoost * 0.6, cap);
+    }
+    this.events.onBump?.(this);
+  }
+
   update(dt) {
     // 冲刺计时
     if (this.isDashing) {

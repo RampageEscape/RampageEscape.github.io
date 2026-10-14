@@ -5,6 +5,7 @@ import { Vehicle } from '../entities/Vehicle.js';
 import { makeTank } from '../models/Models.js';
 import { ObjectPool } from '../fx/ObjectPool.js';
 import { clamp, dampAngle, rand } from '../core/utils.js';
+import { classifyContact } from '../systems/Collisions.js';
 
 const T = CONFIG.tank;
 
@@ -48,7 +49,15 @@ export class TankAI extends Vehicle {
       game.onEnemyDestroyed(this, 2.2, 'dash');
       return;
     }
-    // 没冲刺撞坦克 = 撞墙
+    const c = classifyContact(player, this);
+    if (c.type === 'side') {
+      // 侧面擦到坦克：坦克不会横移，基本都是玩家自己变道撞上去
+      if (c.playerAtFault) player.hit(T.damage * 0.5, -c.side * 0.8, 0.7);
+      else player.bump(-c.side, 0);
+      player.lateral = this.lateral - c.side * ((this.colW + player.colW) / 2 + 0.05);
+      return;
+    }
+    // 没冲刺正面撞坦克 = 撞墙
     player.hit(T.damage, 0, 0.3);
     player.z = this.z - (this.colL + player.colL) / 2 - 0.2;
     player.speed = Math.min(player.speed, this.speed * 0.5);

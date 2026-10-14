@@ -11,6 +11,7 @@ export class HUD {
       hud: $('hud'), score: $('score'), distance: $('distance'), stars: $('stars'),
       hp: $('hp-fill'), bust: $('bust-fill'), combo: $('combo'), banner: $('banner'),
       dash: $('dash-btn'), popups: $('popups'), flash: $('flash'), lang: $('lang-btn'),
+      roadblock: $('roadblock'), rbLanes: document.querySelector('#roadblock .rb-lanes'),
       title: $('title'), over: $('gameover'), reason: $('over-reason'), stats: $('over-stats'), best: $('best'),
     };
     $('start-btn').addEventListener('click', () => this.onStart?.());
@@ -43,6 +44,7 @@ export class HUD {
     this.lastStars = -1;
     this.lastDistance = -1;
     this.overData = null;
+    this.showRoadblock(null);
   }
 
   showGameOver(reason, data) {
@@ -84,6 +86,23 @@ export class HUD {
     el.dash.classList.toggle('ready', p.dashReady);
     el.dash.classList.toggle('active', p.isDashing);
     el.combo.textContent = game.combo > 1 ? t('combo', { n: game.combo }) : '';
+  }
+
+  /**
+   * 路障预警：blocked = 被堵的车道编号数组，null = 隐藏。
+   * 车道编号越大越靠屏幕左边（镜头在车后方，+X 是驾驶员左侧），所以从大到小画。
+   */
+  showRoadblock(blocked) {
+    const key = blocked ? blocked.join(',') : '';
+    if (key === this.rbKey) return;
+    this.rbKey = key;
+    this.el.roadblock.classList.toggle('hidden', !blocked);
+    if (!blocked) return;
+    let html = '';
+    for (let i = CONFIG.road.lanes - 1; i >= 0; i--) {
+      html += blocked.includes(i) ? '<span class="lane closed">✕</span>' : '<span class="lane open">▲</span>';
+    }
+    this.el.rbLanes.innerHTML = html;
   }
 
   popup(text, worldPos, camera, big = false) {
