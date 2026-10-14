@@ -28,7 +28,6 @@ public class PoliceAI : MonoBehaviour
     public static event Action<PoliceAI, bool> Destroyed;
 
     [Header("追捕")]
-    public float catchUp = 14f;
     public float steerGain = 3.2f;
     public float maxLatSpeed = 9f;
     public float lookAhead = 0.35f;
@@ -37,6 +36,20 @@ public class PoliceAI : MonoBehaviour
     public float damage = 10f;
     public float width = 2f, length = 4.4f;
     public LayerMask obstacleMask;
+
+    [Header("橡皮筋机制（距离 = 玩家 z - 警车 z，正数表示警车在后面）")]
+    public float nearDist = 10f;        // 危险范围：进入后与玩家基本同速
+    public float farDist = 35f;         // 超过这个距离给最大加速
+    public float maxBoost = 13f;        // 远距离时比玩家快多少
+    public float nearMaxRel = 1.5f;     // 危险范围内最多比玩家快多少（慢慢逼近，不会瞬间超车）
+    public float nearMinRel = -4f;      // 危险范围内最多比玩家慢多少
+    public float blockerRel = 3f;       // 拦截者超车时的相对速度（缓慢、可预判）
+    public float absMaxSpeed = 42f;     // 绝对最高速：玩家上滑加速（最高 46）就能甩开
+    public float reaction = 1.5f;       // 对玩家加速的反应快慢（越小越迟钝 → 越容易被甩开）
+    public float stickTime = 2.5f;      // 在危险范围内黏住超过这个秒数……
+    public float backoffTime = 1.4f;    // ……就主动退让这么久，给玩家脱战机会
+    public float backoffRel = -5f;
+    public float accel = 14f, brake = 20f, nearBrake = 36f;
 
     [Header("爆炸")]
     public GameObject explosionPrefab;   // 带 ParticleSystem 的爆炸特效预制体（火球、火焰柱、烟、碎片、火花）
@@ -49,11 +62,13 @@ public class PoliceAI : MonoBehaviour
     public PoliceRole Role { get; private set; }
     public float RoadZ => z;
     public float Lateral => lateral;
+    public float LateralVelocity => latVel;
 
     PlayerController player;
     Rigidbody rb;
     Collider col;
     float z, lateral, latVel, speed, yawOffset, ramTimer, skill;
+    float refSpeed, closeTime, backoff; // 橡皮筋状态：感知到的玩家速度、黏住时长、退让剩余时间
 
     void Awake()
     {
@@ -76,6 +91,8 @@ public class PoliceAI : MonoBehaviour
         Mode = PoliceMode.Chase;
         ramTimer = UnityEngine.Random.Range(0.8f, 2f);
         skill = UnityEngine.Random.Range(0.55f, 1f); // 避障能力，越低越容易被玩家引诱撞车
+        refSpeed = startSpeed;
+        closeTime = backoff = 0f;
         ApplyTransform();
     }
 
@@ -113,7 +130,8 @@ public class PoliceAI : MonoBehaviour
 
         // 1) 预测玩家横向位置（提前量追踪，而不是追着玩家当前位置跑）
         float predLat = Mathf.Clamp(player.Lateral + player.LateralVelocity * lookAhead, -lim, lim);
-        float side = Role == PoliceRole.FlankLeft ? 1f : Role == PoliceRole.FlankRight ? -1f : Mathf.Sign(lateral - player.Lateral);
+        // Unity 左手坐标系：+X 是驾驶员右侧，所以 FlankRight = +1
+        float side = Role == PoliceRole.FlankRight ? 1f : Role == PoliceRole.FlankLeft ? -1f : Mathf.Sign(lateral - player.Lateral);
         if (side == 0f) side = 1f;
         float beside = (width + player.width) * 0.5f + 0.5f;
         float flankLat = predLat + side * beside;
@@ -121,11 +139,11 @@ public class PoliceAI : MonoBehaviour
 
         // 2) 按角色确定目标点（desiredGap = 相对玩家的纵向目标距离）
         float desiredLat, desiredGap;
+        bool ahead = rel > (length + player.length) * 0.5f + 1.5f;
         switch (Role)
         {
             case PoliceRole.Blocker:
                 desiredGap = 10f;
-                bool ahead = rel > (length + player.length) * 0.5f + 1.5f;
                 desiredLat = ahead ? predLat : flankLat; // 先从侧面超车，超过去再并线
                 break;
             case PoliceRole.Rammer:
@@ -138,11 +156,11 @@ public class PoliceAI : MonoBehaviour
                 break;
         }
 
-        // 3) 纵向：P 控制追到目标距离；速度上限保证玩家冲刺时能甩开
-        float desiredSpeed = player.Speed + Mathf.Clamp((player.RoadZ + desiredGap - z) * 1.4f, -14f, catchUp);
-        if (Role == PoliceRole.Blocker && rel > 3f && Mathf.Abs(lateral - player.Lateral) < 2.5f)
-            desiredSpeed = Mathf.Min(desiredSpeed, player.Speed - 5f); // 挡在前面刹车
-        desiredSpeed = Mathf.Min(desiredSpeed, player.baseSpeed + catchUp + 6f);
+        // 3) 纵向：橡皮筋机制（远快近慢）
+        bool overtaking = Role == PoliceRole.Blocker && !ahead; // 拦截者正在超车，不算“黏住”
+        float desiredSpeed = RubberBandSpeed(dt, desiredGap, overtaking);
+        if (Role == PoliceRole.Blocker && ahead && backoff <= 0f && Mathf.Abs(lateral - player.Lateral) < 2.5f)
+            desiredSpeed = Mathf.Min(desiredSpeed, refSpeed - 3f); // 挡在前面轻踩刹车：看得见、躲得开
 
         // 4) 避障：向前做 BoxCast，撞到障碍就选一侧绕开，两侧都没空间就减速
         float look = (12f + Mathf.Max(0f, speed - 10f) * 0.5f) * skill;
@@ -171,10 +189,64 @@ public class PoliceAI : MonoBehaviour
         }
         lateral = Mathf.Clamp(lateral + latVel * dt, -lim, lim);
 
-        float accel = desiredSpeed > speed ? 22f : 30f;
-        speed = Mathf.MoveTowards(speed, desiredSpeed, accel * dt);
+        // 加速柔和（不会“瞬移”追上来）；追逐范围内刹车和玩家一样灵敏，玩家急刹时不会冲上来
+        float rate = desiredSpeed > speed ? accel : (Mathf.Abs(rel) < farDist ? nearBrake : brake);
+        speed = Mathf.MoveTowards(speed, desiredSpeed, rate * dt);
         z += speed * dt;
         yawOffset = Mathf.Atan2(latVel, Mathf.Max(speed, 5f)) * 0.8f;
+    }
+
+    /// <summary>
+    /// 橡皮筋速度：根据与玩家的距离决定相对速度。
+    ///   距离 > farDist           → 玩家速度 + maxBoost：快速拉近，保持追逐压迫感
+    ///   nearDist ~ farDist       → 加成随距离平滑减小
+    ///   距离 < nearDist（危险范围）→ 与玩家基本同速（nearMinRel ~ nearMaxRel），慢慢贴近，不会瞬间超车
+    ///   黏住超过 stickTime 秒     → 主动退让 backoffTime 秒（脱战窗口）
+    /// 参照的玩家速度 refSpeed 是“不对称低通滤波”：
+    ///   玩家加速 → 警车反应慢半拍（可以甩开）；玩家减速 → 立刻跟着减（不会趁机冲上来）
+    /// </summary>
+    float RubberBandSpeed(float dt, float desiredGap, bool overtaking)
+    {
+        float k = player.Speed < refSpeed ? reaction * 6f : reaction;
+        refSpeed = Mathf.Lerp(refSpeed, player.Speed, 1f - Mathf.Exp(-k * dt));
+
+        float dist = player.RoadZ - z; // > 0：警车在玩家后面
+        bool near = Mathf.Abs(dist) < nearDist;
+        float rel;
+        if (backoff > 0f)
+        {
+            backoff -= dt;
+            // 在玩家后面/旁边 → 减速退后；已经在玩家前面 → 加速让开（不能刹车，否则玩家会撞上来）
+            rel = dist < -2f ? -backoffRel : backoffRel;
+        }
+        else if (dist > farDist)
+        {
+            rel = maxBoost;
+        }
+        else if (dist > nearDist)
+        {
+            float t = Mathf.SmoothStep(0f, 1f, (dist - nearDist) / (farDist - nearDist));
+            rel = Mathf.Lerp(nearMaxRel, maxBoost, t);
+        }
+        else
+        {
+            float maxRel = Role == PoliceRole.Blocker ? blockerRel : nearMaxRel;
+            rel = Mathf.Clamp((player.RoadZ + desiredGap - z) * 0.5f, nearMinRel, maxRel);
+        }
+
+        // 黏住计时 → 触发退让
+        if (near && !overtaking && backoff <= 0f)
+        {
+            closeTime += dt;
+            if (closeTime > stickTime) { backoff = backoffTime; closeTime = 0f; }
+        }
+        else closeTime = Mathf.Max(0f, closeTime - dt);
+
+        float result = Mathf.Min(refSpeed + rel, absMaxSpeed);
+        // 危险范围内的硬上限：绝不比玩家当前速度快超过 nearMaxRel
+        if (near && backoff <= 0f)
+            result = Mathf.Min(result, player.Speed + (Role == PoliceRole.Blocker ? blockerRel : nearMaxRel));
+        return result;
     }
 
     void ApplyTransform()
@@ -210,31 +282,46 @@ public class PoliceAI : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 与玩家碰撞（非冲刺）。原则：只惩罚玩家的主动失误。
+    ///   被追尾           → 不扣血，玩家被往前推一把，警车被弹回
+    ///   被警车侧面挤      → 不扣血，横向推一下
+    ///   正面撞上前车 / 玩家自己变道撞上去 → 扣血
+    /// </summary>
     void HandlePlayerContact(PlayerController p)
     {
         if (p == null) return;
+        // 横停的路障警车碰撞盒长宽对调
+        float myLen = Mode == PoliceMode.Parked ? width * 1.5f : length;
+        float myWid = Mode == PoliceMode.Parked ? length * 0.85f : width;
+        ContactInfo c = CollisionJudge.Classify(p, z, lateral, latVel, myLen, myWid);
+
         if (Mode == PoliceMode.Parked)
         {
-            p.Hit(damage * 2.8f, 0f, 0.45f); // 硬闯路障
+            // 路障是静止的，碰到它一定是玩家自己开过去的
+            bool front = c.type == ContactType.Front;
+            p.Hit(damage * (front ? 2.8f : 1.4f), front ? 0f : -c.side * 0.6f, front ? 0.45f : 0.8f);
             return;
         }
-        float dz = p.RoadZ - z;
-        bool sideHit = Mathf.Abs(dz) < (length + p.length) * 0.35f;
-        if (sideHit)
+
+        if (c.type == ContactType.Rear)
         {
-            float dir = Mathf.Sign(p.Lateral - lateral);
-            p.Hit(damage, dir * 0.8f, 0.85f);
-            latVel = -dir * 5f;
+            p.Bump(0f, p.rearBoost);
+            speed = p.Speed - 6f;
+            z = p.RoadZ - (p.length + myLen) * 0.5f - 0.3f; // 推开，避免下一帧重复触发
         }
-        else if (dz > 0f)
+        else if (c.type == ContactType.Side && !c.playerAtFault)
         {
-            p.Hit(damage, 0f, 1f); // 从后面追尾
-            speed = p.Speed - 10f;
+            p.Bump(-c.side, 0f);
+            latVel = c.side * 4f;
+            lateral = p.Lateral + c.side * ((p.width + myWid) * 0.5f + 0.05f);
         }
         else
         {
-            p.Hit(damage * 1.3f, 0f, 0.55f); // 玩家撞上前方拦截者
-            speed = p.Speed + 6f;
+            bool front = c.type == ContactType.Front;
+            p.Hit(damage * (front ? 1.3f : 1f), front ? 0f : -c.side * 0.8f, front ? 0.55f : 0.85f);
+            if (front) { speed = p.Speed + 6f; z = p.RoadZ + (p.length + myLen) * 0.5f + 0.3f; }
+            else latVel = c.side * 5f;
         }
         ramTimer = ramCooldown;
     }

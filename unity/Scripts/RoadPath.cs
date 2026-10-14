@@ -3,6 +3,7 @@ using UnityEngine;
 /// <summary>
 /// 道路中心线（与网页版 src/world/Road.js 一致）。
 /// 所有车辆用“道路坐标” (z, lateral) 描述位置：z 沿前进方向，lateral 是相对中心线的横向偏移。
+/// 注意：Unity 是左手坐标系，lateral 为正（+X）是驾驶员右侧；网页版 Three.js 是右手坐标系，+X 是左侧。
 /// 正式项目可以换成 Unity Splines 采样，只要保留 CenterX / Heading 这两个接口即可。
 /// </summary>
 public static class RoadPath

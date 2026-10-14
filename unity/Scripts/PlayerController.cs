@@ -40,12 +40,18 @@ public class PlayerController : MonoBehaviour
     [Header("生命")]
     public float maxHp = 100f, hitInvuln = 0.7f;
 
+    [Header("被推（非玩家失误的碰撞）")]
+    public float rearBoost = 5f;        // 被追尾时往前推的速度
+    public float sidePush = 0.6f;       // 被侧挤时的横向推力系数
+    public float bumpMaxSpeedMul = 1.15f;
+
     [Header("表现")]
     public Transform visualRoot;
     public float width = 2f, length = 4.4f;
 
     public event Action OnDashStart, OnDashEnd;
     public event Action<float> OnHit;
+    public event Action OnBump;          // 可以在这里播放轻微的金属摩擦音效 / 小火花
     public event Action OnDeath;
 
     // ---- 对外只读状态（AI 会读取） ----
@@ -157,8 +163,9 @@ public class PlayerController : MonoBehaviour
         if (!IsAlive) return;
         if (Mathf.Abs(d.x) > Mathf.Abs(d.y))
         {
-            // 镜头在车后方，车头朝 +Z 时 +X 是驾驶员左侧 → 左滑 = 车道编号 +1
-            lane = d.x < 0f ? Mathf.Min(RoadPath.LaneCount - 1, lane + 1) : Mathf.Max(0, lane - 1);
+            // Unity 是左手坐标系：车头朝 +Z 时 +X 是驾驶员右侧（镜头在车后方，也是屏幕右侧）
+            // → 右滑 = 车道编号 +1（往 +X），左滑 = -1
+            lane = d.x > 0f ? Mathf.Min(RoadPath.LaneCount - 1, lane + 1) : Mathf.Max(0, lane - 1);
         }
         else
         {
@@ -229,6 +236,24 @@ public class PlayerController : MonoBehaviour
         OnHit?.Invoke(damage);
         if (hp <= 0f) OnDeath?.Invoke();
         return true;
+    }
+
+    /// <summary>
+    /// 非玩家失误的碰撞（被追尾、被警车侧挤）：不扣血、不进无敌帧，只推一把。
+    ///   speedBoost：加到速度偏移量上，1~2 秒内自然回落 → 像被人从后面推了一把
+    ///   pushDir   ：横向推一下，但不改目标车道，车子会自己回正
+    /// </summary>
+    public void Bump(float pushDir, float speedBoost)
+    {
+        if (!IsAlive) return;
+        if (pushDir != 0f) knockVel = pushDir * 8f * sidePush;
+        if (speedBoost > 0f)
+        {
+            speedBias = Mathf.Min(maxBias, speedBias + speedBoost);
+            float cap = maxSpeed * bumpMaxSpeedMul * (IsDashing ? dashSpeedMul : 1f);
+            speed = Mathf.Min(speed + speedBoost * 0.6f, cap);
+        }
+        OnBump?.Invoke();
     }
 
     /// 撞上不可摧毁的东西（坦克）时被挡住
