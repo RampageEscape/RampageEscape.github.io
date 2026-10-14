@@ -51,8 +51,9 @@ export class Civilian extends Vehicle {
   }
 
   onPlayerCollision(player, game) {
-    if (player.collisionTag === 'PlayerDash') {
+    if (player.smashes) {
       this.knock(player, game, 1.2);
+      if (!player.isDashing) player.ramImpact(1);
       game.onPropSmashed(this, CONFIG.score.civilian);
       return;
     }
@@ -89,7 +90,7 @@ export class Obstacle extends Vehicle {
   }
 
   onPlayerCollision(player, game) {
-    const dash = player.collisionTag === 'PlayerDash';
+    const dash = player.smashes;
     if (!dash && this.type === 'barrier') player.hit(CONFIG.barricade.damage * 0.5, 0, 0.7);
     this.knock(player, game, dash ? 1.3 : 0.9);
     game.onPropSmashed(this, CONFIG.score.prop);

@@ -49,6 +49,16 @@ export const CONFIG = {
   swat: { length: 5.6, width: 2.45, damage: 22, catchUp: 10, ramImpulse: 9 },
   tank: { length: 7.6, width: 3.4, speed: 11, damage: 40, fireInterval: 2.6, shellFlight: 1.3, blastRadius: 3.2, blastDamage: 25 },
   traffic: { minSpeed: 12, maxSpeed: 22, damage: 6 },
+  // 路上的设施：道具、跳台、改装站
+  features: {
+    pickupFirst: 180, pickupMinGap: 140, pickupMaxGap: 230,
+    rampFirst: 380, rampMinGap: 380, rampMaxGap: 700,
+    rampBeforeBarricade: 0.4, // 路障前放跳台的概率
+    jumpPower: 13,
+    stationAfterJunction: 200, // 每个路口之后多少米放一个改装站
+  },
+  // 玩家坦克的主炮
+  cannon: { cooldown: 0.9, radius: 3.6, speed: 85, range: 60 },
   // 被追尾 / 被侧撞（非玩家失误）时：不扣血，只推一把
   bump: { rearBoost: 5, sidePush: 0.6, maxSpeedMul: 1.15 },
   barricade: {

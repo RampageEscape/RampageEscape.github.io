@@ -14,6 +14,11 @@ import { resolveCollisions } from './systems/Collisions.js';
 import { updateSirens } from './models/Models.js';
 import { clamp, damp, dampAngle } from './core/utils.js';
 import { t } from './i18n.js';
+import { RoadFeatures } from './world/RoadFeatures.js';
+import { Cannon } from './player/Cannon.js';
+import { TIERS } from './player/Vehicles.js';
+import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
+import { LEVELS } from './data/levels.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SAMPLE = {};
@@ -52,7 +57,11 @@ class Game {
     this.scene.add(this.ground);
 
     this.levels = new LevelManager();
-    this.levels.onCommit = (j) => this.world.onCommit(j);
+    this.levels.onCommit = (j) => {
+      this.world.onCommit(j);
+      // 每过一个路口，前方就有一个改装站
+      if (this.state === 'playing') this.features.addStation(j.sEntry + j.options[j.chosen].boxLen + CONFIG.features.stationAfterJunction);
+    };
     this.world = new WorldGenerator(this.scene, this.levels);
     this.fx = new Effects(this.scene);
     this.feel = new GameFeel();
@@ -61,19 +70,37 @@ class Game {
     this.player = new PlayerController(this.scene, {
       onDashStart: () => { this.feel.onDashStart(); this.fx.decal('ring', this.player.mesh.position, 0.35, 7, 0x66e0ff); },
       onHit: (p, dmg) => this.onPlayerHit(dmg),
+      onShieldBreak: () => this.onShieldBreak(),
+      onLand: (p, impact) => this.onLand(impact),
     });
     this.spawner = new Spawner(this);
+    this.features = new RoadFeatures(this);
+    this.cannon = new Cannon(this);
     new SwipeInput(canvas, {
       onSwipe: (d) => this.handleSwipe(d),
       onDash: () => this.tryDash(),
     });
-    this.hud.onStart = () => this.start();
-    this.hud.onDash = () => this.tryDash();
-    this.hud.onSelectRoute = (idx) => this.levels.select(idx);
+    addEventListener('keydown', (e) => {
+      if (e.code === 'KeyF' || e.code === 'KeyJ') this.fire();
+    });
+    const hud = this.hud;
+    hud.onDash = () => this.tryDash();
+    hud.onFire = () => this.fire();
+    hud.onSelectRoute = (idx) => this.levels.select(idx);
+    hud.onOpenLevels = () => hud.showLevels(LEVELS, this.progress);
+    hud.onEndless = () => this.startRun({ mode: 'endless' });
+    hud.onPickLevel = (level) => this.startRun({ mode: 'level', level });
+    hud.onRetry = () => this.startRun(this.runOpts);
+    hud.onMenu = () => this.toMenu();
+    hud.onNextLevel = () => this.startRun({ mode: 'level', level: LEVELS[LEVELS.indexOf(this.level) + 1] });
+    hud.onPickUpgrade = (id) => this.pickUpgrade(id);
 
     this.state = 'title';
     this.time = 0;
     this.best = Number(this.load('best') || 0);
+    this.bestDist = Number(this.load('bestDist') || 0);
+    try { this.progress = JSON.parse(this.load('progress')) || null; } catch { this.progress = null; }
+    this.progress ??= { unlocked: 1, stars: {} };
     this.resetRun();
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -84,11 +111,17 @@ class Game {
   load(k) { try { return localStorage.getItem('rampage-escape.' + k); } catch { return null; } }
   save(k, v) { try { localStorage.setItem('rampage-escape.' + k, v); } catch { /* 隐私模式 */ } }
 
-  resetRun() {
+  resetRun(opts = { mode: 'endless' }) {
+    this.runOpts = opts;
+    this.level = opts.mode === 'level' ? opts.level : null;
+    const pool = this.level ? this.level.pool : BIOME_IDS;
     this.world.reset();
-    this.levels.reset(BIOME_IDS, 'city');
+    this.levels.reset(pool, pool[0]);
     this.player.reset();
     this.spawner.reset();
+    this.features.reset();
+    this.cannon.reset();
+    if (this.level) this.features.setFinish(this.level.length);
     this.camYaw = 0;
     this.score = 0;
     this.distance = 0;
@@ -100,17 +133,113 @@ class Game {
     this.camTarget.set(0, 0, CONFIG.camera.lookAhead);
   }
 
-  start() {
-    this.resetRun();
+  /** 开始一局：{ mode: 'endless' } 或 { mode: 'level', level } */
+  startRun(opts) {
+    this.resetRun(opts);
     this.state = 'playing';
     this.spawner.prefill(this.player.z);
     this.hud.showPlaying();
     this.hud.banner(this.biome);
   }
 
+  /** 回主菜单：背景里继续自动开车（无尽地图） */
+  toMenu() {
+    this.resetRun();
+    this.state = 'title';
+    this.hud.showTitle();
+  }
+
   get stars() {
-    const s = CONFIG.spawn;
-    return clamp(1 + Math.floor(this.distance / s.starDistance) + Math.floor(this.kills / 10), 1, s.maxStars);
+    const s = CONFIG.spawn, base = this.level?.startStars ?? 1;
+    return clamp(base + Math.floor(this.distance / s.starDistance) + Math.floor(this.kills / 10), 1, s.maxStars);
+  }
+
+  fire() {
+    if (this.state === 'playing') this.cannon.fire();
+  }
+
+  // ---------------- 改装站 ----------------
+  openUpgrade() {
+    this.state = 'upgrade';
+    const p = this.player;
+    const cards = rollUpgrades(p).map((id) => {
+      const u = UPGRADES[id], next = TIERS[p.tierIndex + 1];
+      return {
+        id,
+        icon: id === 'evolve' ? ['🚗', '🏎️', '🛻', '🪖'][p.tierIndex + 1] ?? u.icon : u.icon,
+        level: p.upgradeLevels[id] ?? 0,
+        name: () => (id === 'evolve' ? t('up_evolve', { tier: t('tier_' + next.id) }) : t('up_' + id)),
+        desc: () => (id === 'evolve' ? (next.cannon ? t('up_evolve_tank') : next.ram ? t('up_evolve_armored') : t('up_evolve_desc')) : t('up_' + id + '_desc')),
+      };
+    });
+    this.hud.showUpgrade(cards);
+  }
+
+  pickUpgrade(id) {
+    if (this.state !== 'upgrade') return;
+    const p = this.player;
+    applyUpgrade(p, id);
+    this.state = 'playing';
+    this.hud.showPlaying();
+    // 回到路上：短暂无敌，附近的警车被推远一点，避免一出来就被包夹
+    p.invuln = 1.6;
+    for (const c of this.spawner.police) if (c.mode === 'chase' && Math.abs(c.z - p.z) < 25) c.z = Math.min(c.z, p.z - 25);
+    this.bust = 0;
+    this.feel.slowMo(0.5, 0.4);
+    this.feel.shake.add(0.2);
+    this.fx.decal('ring', p.mesh.position, 0.5, 9, id === 'evolve' ? 0xffb020 : 0x5ad1ff);
+    this.hud.popup(id === 'evolve' ? t('tier_' + p.tier.id) : t('up_' + id), p.mesh.position, this.camera, true);
+  }
+
+  // ---------------- 道具 / 跳台 / 护盾 ----------------
+  onPickup(kind, pos) {
+    const p = this.player;
+    if (kind === 'shield') p.shields = Math.min(3, p.shields + 1);
+    else if (kind === 'nitro') p.dashCooldown = 0;
+    else p.heal(25);
+    this.score += 100;
+    this.fx.impact(pos, 0.5);
+    this.fx.decal('ring', p.mesh.position, 0.3, 5, kind === 'shield' ? 0x2f9bff : kind === 'nitro' ? 0xffb020 : 0x2ecc71);
+    this.feel.shake.add(0.06);
+    this.hud.popup(t('pk_' + kind), pos, this.camera);
+  }
+
+  onJump() {
+    this.score += 200;
+    this.feel.slowMo(0.55, 0.35);
+    this.feel.shake.add(0.12);
+    this.hud.popup(t('jump'), this.player.mesh.position, this.camera, true);
+  }
+
+  onLand(impact) {
+    this.feel.shake.add(Math.min(0.4, impact * 0.025));
+    this.fx.dust(this.player.mesh.position);
+  }
+
+  onShieldBreak() {
+    this.feel.shake.add(0.25);
+    this.hud.flash('#5ad1ff', 0.3);
+    this.hud.popup(t('shieldBlock'), this.player.mesh.position, this.camera);
+  }
+
+  // ---------------- 过关 ----------------
+  completeLevel() {
+    this.state = 'complete';
+    const lv = this.level, p = this.player;
+    const goals = [
+      { key: 'goalFinish', done: true },
+      { key: 'goalKills', vars: { n: lv.kills, k: this.kills }, done: this.kills >= lv.kills },
+      { key: 'goalHp', done: p.hp >= p.maxHp * 0.5 },
+    ];
+    const stars = goals.filter((g) => g.done).length;
+    const pr = this.progress;
+    pr.stars[lv.id] = Math.max(pr.stars[lv.id] ?? 0, stars);
+    pr.unlocked = Math.max(pr.unlocked, Math.min(LEVELS.length, lv.id + 1));
+    this.save('progress', JSON.stringify(pr));
+    this.feel.slowMo(0.3, 0.8);
+    this.hud.flash('#fff6d8', 0.5);
+    const hasNext = LEVELS.indexOf(lv) < LEVELS.length - 1;
+    setTimeout(() => this.hud.showComplete({ stars, goals, score: Math.floor(this.score), kills: this.kills, hasNext }), 900);
   }
 
   /** 路口决策区内，左右/上滑是选岔路；其他时候照常变道/加减速 */
@@ -164,10 +293,17 @@ class Game {
     this.feel.hitStop(0.2, 0.05);
     this.feel.slowMo(0.3, 0.8);
     this.feel.shake.add(0.6);
-    const score = Math.floor(this.score);
+    const score = Math.floor(this.score), distance = Math.floor(this.distance);
     this.best = Math.max(this.best, score);
     this.save('best', this.best);
-    setTimeout(() => this.hud.showGameOver(reason, { score, distance: Math.floor(this.distance), kills: this.kills, best: this.best }), 1300);
+    let bestLabel = null;
+    if (!this.level) {
+      // 无尽模式额外记录最远距离
+      this.bestDist = Math.max(this.bestDist, distance);
+      this.save('bestDist', this.bestDist);
+      bestLabel = { key: 'bestDist', vars: { d: this.bestDist } };
+    }
+    setTimeout(() => this.hud.showGameOver(reason, { score, distance, kills: this.kills, best: this.best, bestLabel }), 1300);
   }
 
   // ---------------- 主循环 ----------------
@@ -179,6 +315,12 @@ class Game {
   }
 
   update(realDt) {
+    // 改装站界面打开时整个世界暂停，只保留镜头和界面
+    if (this.state === 'upgrade') {
+      this.updateCamera(realDt);
+      this.hud.update(this, realDt);
+      return;
+    }
     this.feel.update(realDt);
     const dt = realDt * this.feel.timeScale; // 顿帧/慢动作只影响游戏时间
     this.time += dt;
@@ -186,6 +328,8 @@ class Game {
     this.player.update(dt);
     this.levels.update(this.player.z);
     if (this.state !== 'title') this.spawner.update(dt);
+    this.features.update(dt);
+    this.cannon.update(dt);
     if (this.state === 'playing') this.updatePlaying(dt);
     if (this.player.isDashing) this.fx.dashTrail(this.player);
 
@@ -211,8 +355,8 @@ class Game {
     const rb = this.spawner.nextBarricade(p.z, CONFIG.barricade.warnDistance);
     this.hud.showRoadblock(rb ? rb.blocked : null);
 
-    // 被捕判定：被 2 辆以上警车贴身包夹时，被捕条持续上涨
-    const boxed = !p.isDashing && this.spawner.copsNear(p, 5.5, 5.5) >= 2;
+    // 被捕判定：被 2 辆以上警车贴身包夹时，被捕条持续上涨（冲刺、飞在空中、开坦克时不会被捕）
+    const boxed = !p.isDashing && !p.airborne && !p.tier.cannon && this.spawner.copsNear(p, 5.5, 5.5) >= 2;
     this.bust = clamp(this.bust + (boxed ? 0.55 : -0.7) * dt, 0, 1);
 
     const biome = Road.biomeAt(p.z);
@@ -222,6 +366,7 @@ class Game {
     }
     if (!p.alive) this.gameOver('WRECKED');
     else if (this.bust >= 1) this.gameOver('BUSTED');
+    else if (this.level && p.z >= this.level.length) this.completeLevel();
   }
 
   updateEnvironment(dt) {

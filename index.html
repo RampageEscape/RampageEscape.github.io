@@ -27,9 +27,14 @@
         <div id="score">0</div>
         <div id="distance"></div>
       </div>
+      <div id="progress" class="hidden">
+        <div class="pg-bar"><div class="pg-fill"></div></div>
+        <div class="pg-text"></div>
+      </div>
       <div class="hud-right">
         <div id="stars"></div>
         <div class="bar hp"><div id="hp-fill"></div></div>
+        <div id="shields"></div>
         <div class="bar bust"><div id="bust-fill"></div></div>
       </div>
     </div>
@@ -42,6 +47,7 @@
       <div class="jn-options"></div>
     </div>
     <div id="combo"></div>
+    <button id="fire-btn" class="hidden" data-i18n-aria="fire"><span data-i18n="fire">開炮</span></button>
     <button id="dash-btn" data-i18n-aria="dashAria"><span data-i18n="dash">衝刺</span></button>
   </div>
 
@@ -58,16 +64,46 @@
       <li data-i18n="helpLanes"><b>← →</b> 滑動切換車道</li>
       <li data-i18n="helpSpeed"><b>↑ ↓</b> 滑動加速 / 剎車</li>
       <li data-i18n="helpDash"><b>雙擊 / DASH / 空白鍵</b> 衝刺：無敵，撞毀警車</li>
-      <li data-i18n="helpBust">別被警車包夾太久，會被捕！</li>
+      <li data-i18n="helpJunction"><b>路口</b> 滑動選擇岔路，通往不同地圖</li>
+      <li data-i18n="helpStation"><b>改裝站</b> 升級車輛，一路進化成坦克！</li>
     </ul>
-    <button id="start-btn" data-i18n="start">開始追逐</button>
+    <div class="btn-row">
+      <button id="mode-levels" data-i18n="modeLevels">闖關模式</button>
+      <button id="mode-endless" class="alt" data-i18n="modeEndless">無盡模式</button>
+    </div>
+  </div>
+
+  <div id="levels" class="screen hidden">
+    <h2 data-i18n="modeLevels">闖關模式</h2>
+    <div id="level-grid"></div>
+    <button id="levels-back" class="alt" data-i18n="back">返回</button>
+  </div>
+
+  <div id="upgrade" class="screen hidden">
+    <h2 data-i18n="upgradeTitle">改裝站：選擇一項升級</h2>
+    <div id="upgrade-cards"></div>
+  </div>
+
+  <div id="complete" class="screen hidden">
+    <h2 data-i18n="complete">逃脫成功！</h2>
+    <div id="complete-stars"></div>
+    <ul id="complete-goals"></ul>
+    <p id="complete-stats"></p>
+    <div class="btn-row">
+      <button id="complete-next" data-i18n="next">下一關</button>
+      <button id="complete-retry" class="alt" data-i18n="retryLevel">再玩一次</button>
+      <button id="complete-menu" class="alt" data-i18n="menu">主選單</button>
+    </div>
   </div>
 
   <div id="gameover" class="screen hidden">
     <h2 id="over-reason"></h2>
     <p id="over-stats"></p>
     <p id="best"></p>
-    <button id="retry-btn" data-i18n="retry">再來一次</button>
+    <div class="btn-row">
+      <button id="retry-btn" data-i18n="retry">再來一次</button>
+      <button id="over-menu" class="alt" data-i18n="menu">主選單</button>
+    </div>
   </div>
 
   <script type="module" src="src/main.js"></script>

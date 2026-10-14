@@ -94,6 +94,7 @@ export class Spawner {
       this.nextBarricadeZ = j.sEntry + 100; // 路障不放在路口附近，顺延到路口之后
     }
     this.spawnLimit = limit;
+    if (this.game.features?.isNear(this.game.features.stations, this.nextBarricadeZ, 90)) this.nextBarricadeZ += 150; // 不和改装站挤在一起
     if (this.traffic.length < S.trafficCount) this.spawnCivilian(p.z + rand(130, 200));
     if (p.z + 170 > this.nextBarricadeZ && this.nextBarricadeZ < limit) {
       this.spawnBarricade(this.nextBarricadeZ, stars);
@@ -171,6 +172,7 @@ export class Spawner {
       if (c.z > z + c0 && c.z < z + c1 && c.z > this.game.player.z + 60) c.removeMe = true;
     }
 
+    this.game.features?.onBarricade(z, blocked);
     const signs = [];
     for (const i of blocked) for (const d of B.signOffsets) signs.push(this.warnings.place(z - d, laneOffset(i)));
     this.barricades.push({ z, blocked, signs });

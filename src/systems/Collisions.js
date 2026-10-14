@@ -37,7 +37,8 @@ export function resolveCollisions(game) {
   const all = spawner.entities;
 
   // 玩家 vs 一切：具体结果由各实体的 onPlayerCollision 决定（会读取 player.collisionTag）
-  if (player.alive) {
+  // 从跳台飞起来的时候在空中，什么都撞不到
+  if (player.alive && !player.airborne) {
     for (const e of all) if (e.collidable && overlaps(player, e)) e.onPlayerCollision(player, game);
   }
 

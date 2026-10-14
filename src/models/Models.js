@@ -77,16 +77,58 @@ export function makePlayerCar() {
   part(root, mat(0xf5f5f5), 0.32, 0.02, 4.42, 0, clearance + bodyH + 0.01, 0); // 赛车条纹
   part(root, mat(0x161616), 1.9, 0.08, 0.5, 0, 1.35, -1.95); // 尾翼
   for (const sx of [-0.6, 0.6]) part(root, mat(0x161616), 0.1, 0.35, 0.1, sx, 1.15, -1.95);
-  // 冲刺光环（默认隐藏）
-  const aura = new THREE.Mesh(
-    new THREE.BoxGeometry(2.6, 1.6, 5.4),
-    new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
-  );
-  aura.position.y = 0.8;
-  aura.visible = false;
-  root.add(aura);
-  g.userData.aura = aura;
   return g;
+}
+
+/** 进化 1：肌肉车（黑色车身 + 橙色双条纹 + 进气口） */
+export function makeMuscleCar() {
+  const g = vehicle({ L: 4.8, W: 2.15, H: 1.55, body: 0x1d1f24, cabinL: 0.34, cabinZ: -0.12, cabinH: 0.36, clearance: 0.32 });
+  const root = g.userData.root, { bodyH, clearance } = g.userData.dims, top = clearance + bodyH;
+  for (const sx of [-0.3, 0.3]) part(root, mat(0xff7a1a), 0.22, 0.02, 4.82, sx, top + 0.01, 0);
+  part(root, mat(0x111111), 0.7, 0.28, 1.0, 0, top + 0.14, 1.2); // 引擎盖进气口
+  part(root, mat(0x111111), 2.1, 0.1, 0.55, 0, 1.45, -2.1); // 尾翼
+  for (const sx of [-0.55, 0.55]) part(root, mat(0x9a9a9a), 0.16, 0.16, 0.5, sx, 0.45, -2.5, GEO.cylBase).rotation.x = Math.PI / 2;
+  return g;
+}
+
+/** 进化 2：装甲车（橄榄绿装甲 + 前方撞角 + 侧装甲板） */
+export function makeArmoredCar() {
+  const g = vehicle({ L: 5.4, W: 2.45, H: 2.3, body: 0x55603f, glass: 0x1a1f22, cabinL: 0.5, cabinZ: 0.02, cabinH: 0.4 });
+  const root = g.userData.root;
+  part(root, mat(0x3a3d40), 2.7, 0.7, 0.5, 0, 0.75, 2.85); // 撞角
+  for (const sx of [-1, 1]) {
+    part(root, mat(0x3a3d40), 0.5, 0.18, 0.18, sx * 0.8, 1.1, 3.15); // 撞角尖刺
+    part(root, mat(0x47503a), 0.12, 0.7, 4.0, sx * 1.27, 1.0, -0.1); // 侧装甲
+  }
+  part(root, mat(0xd8261d), 2.47, 0.16, 0.6, 0, 1.5, -0.4); // 玩家标识红条
+  return g;
+}
+
+/** 坦克（敌人用默认绿色涂装；玩家进化 3 用红色涂装） */
+export function makeTank(colors = {}) {
+  const { hull = 0x56623f, top = hull, turretColor = 0x5f6c45, track = 0x2a2b27 } = colors;
+  const g = new THREE.Group();
+  const root = new THREE.Group();
+  g.add(root);
+  const green = mat(hull), dark = mat(track);
+  part(root, green, 3.0, 1.0, 7.0, 0, 1.1, 0);
+  part(root, mat(top), 2.6, 0.5, 4.6, 0, 1.85, -0.4);
+  for (const sx of [-1, 1]) part(root, dark, 0.75, 1.15, 7.5, sx * 1.65, 0.6, 0);
+  const turret = new THREE.Group();
+  turret.position.set(0, 2.1, -0.6);
+  root.add(turret);
+  part(turret, mat(turretColor), 2.2, 0.9, 2.8, 0, 0.45, 0);
+  const barrel = part(turret, green, 0.3, 4.2, 0.3, 0, 0.5, 1.2, GEO.cylBase);
+  barrel.rotation.x = Math.PI / 2;
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.5, 5.5);
+  turret.add(muzzle);
+  g.userData = { root, turret, muzzle, dims: { L: 7.5, W: 3.3, H: 2.6 } };
+  return g;
+}
+
+export function makePlayerTank() {
+  return makeTank({ hull: 0xb8322a, top: 0x8f2820, turretColor: 0xc8402f, track: 0x1e1e1e });
 }
 
 export function makePoliceCar() {
@@ -102,27 +144,6 @@ export function makeSwat() {
   const g = vehicle({ L: 5.6, W: 2.45, H: 2.7, body: 0x1d2026, glass: 0x14181d, cabinL: 0.74, cabinZ: -0.1, cabinH: 0.48 });
   part(g.userData.root, mat(0x3a3d42), 2.5, 0.5, 0.3, 0, 0.75, 2.9); // 防撞杠
   addLightbar(g, 0.3);
-  return g;
-}
-
-export function makeTank() {
-  const g = new THREE.Group();
-  const root = new THREE.Group();
-  g.add(root);
-  const green = mat(0x56623f), dark = mat(0x2a2b27);
-  part(root, green, 3.0, 1.0, 7.0, 0, 1.1, 0);
-  part(root, green, 2.6, 0.5, 4.6, 0, 1.85, -0.4);
-  for (const sx of [-1, 1]) part(root, dark, 0.75, 1.15, 7.5, sx * 1.65, 0.6, 0);
-  const turret = new THREE.Group();
-  turret.position.set(0, 2.1, -0.6);
-  root.add(turret);
-  part(turret, mat(0x5f6c45), 2.2, 0.9, 2.8, 0, 0.45, 0);
-  const barrel = part(turret, green, 0.3, 4.2, 0.3, 0, 0.5, 1.2, GEO.cylBase);
-  barrel.rotation.x = Math.PI / 2;
-  const muzzle = new THREE.Object3D();
-  muzzle.position.set(0, 0.5, 5.5);
-  turret.add(muzzle);
-  g.userData = { root, turret, muzzle };
   return g;
 }
 

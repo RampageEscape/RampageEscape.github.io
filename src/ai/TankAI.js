@@ -41,12 +41,21 @@ export class TankAI extends Vehicle {
 
   knock() {} // 坦克太重，警车撞上来推不动
 
+  /** 被冲刺撞毁 / 被玩家坦克撞毁 / 被主炮击中 */
+  destroy(game, source) {
+    if (this.state === 'wreck') return;
+    const carry = (source?.speed ?? 20) * 0.3;
+    this.launch(new THREE.Vector3(rand(-3, 3), 9, carry), new THREE.Vector3(rand(-2, 2), rand(-2, 2), rand(-2, 2)));
+    this.burning = true;
+    game.fx.explosion(this.mesh.position, 2.2, carry, Road.heading(this.z));
+    game.onEnemyDestroyed(this, 2.2, 'dash');
+  }
+
   onPlayerCollision(player, game) {
-    if (player.collisionTag === 'PlayerDash') {
-      this.launch(new THREE.Vector3(rand(-3, 3), 9, player.speed * 0.3), new THREE.Vector3(rand(-2, 2), rand(-2, 2), rand(-2, 2)));
-      this.burning = true;
-      game.fx.explosion(this.mesh.position, 2.2, player.speed * 0.3, Road.heading(this.z));
-      game.onEnemyDestroyed(this, 2.2, 'dash');
+    // 冲刺中，或者玩家自己也是坦克 → 敌方坦克被撞毁
+    if (player.isDashing || player.tier.tankKill) {
+      this.destroy(game, player);
+      if (!player.isDashing) player.ramImpact(10);
       return;
     }
     const c = classifyContact(player, this);
@@ -121,7 +130,7 @@ export class Shells {
     g.feel.onBlast();
     const p = g.player, pp = p.mesh.position;
     // 推开方向用道路坐标：炮弹落点在玩家哪一侧
-    if (Math.hypot(pp.x - pos.x, pp.z - pos.z) < R) p.hit(T.blastDamage, Math.sign(p.lateral - pos.lat) || 1, 0.6);
+    if (!p.airborne && Math.hypot(pp.x - pos.x, pp.z - pos.z) < R) p.hit(T.blastDamage, Math.sign(p.lateral - pos.lat) || 1, 0.6);
     for (const c of g.spawner.police) {
       if (c.collidable && Math.hypot(c.mesh.position.x - pos.x, c.mesh.position.z - pos.z) < R) c.explode(g, null);
     }

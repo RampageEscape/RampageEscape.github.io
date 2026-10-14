@@ -129,3 +129,61 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .jn-opt .arrow { font-size: 24px; line-height: 1; }
 .jn-opt .name { font-size: 12px; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; font-weight: 700; white-space: nowrap; }
 .jn-opt.selected { background: #ffb020; border-color: #fff; color: #2a1600; transform: scale(1.08); box-shadow: 0 0 14px rgba(255,176,32,.8); }
+
+/* ---------- 模式 / 关卡 / 改装 / 过关 ---------- */
+.btn-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.screen button.alt { background: linear-gradient(180deg, #4a5160, #2d323c); box-shadow: 0 5px 0 #15181d, 0 10px 20px rgba(0,0,0,.4); }
+.screen button.alt:active { box-shadow: 0 2px 0 #15181d; }
+
+#level-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;
+  width: min(760px, 100%); margin: 8px 0 22px; max-height: 60vh; overflow-y: auto; padding: 4px;
+}
+.screen button.level-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 10px; border-radius: 16px;
+  font-size: 15px; background: linear-gradient(180deg, #ff8a1f, #c9370c); box-shadow: 0 5px 0 #7a1f05;
+}
+.level-card .lv-num { font-size: 13px; opacity: .9; }
+.level-card .lv-name { font-size: 18px; }
+.level-card .lv-meta { font: 13px system-ui, sans-serif; opacity: .85; }
+.level-card .lv-stars { color: #ffe14d; letter-spacing: 2px; text-shadow: 0 2px 0 #6a2a00; }
+.screen button.level-card.locked { background: #3a3f48; box-shadow: 0 5px 0 #1d2026; color: #9aa0a8; cursor: not-allowed; }
+
+#upgrade { background: rgba(8, 14, 26, .78); }
+#upgrade-cards { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; width: min(780px, 100%); }
+.screen button.up-card {
+  width: 210px; max-width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 18px 14px; border-radius: 18px; font-size: 18px;
+  background: linear-gradient(180deg, #2f6fd6, #1c3f8a); box-shadow: 0 6px 0 #0f2350, 0 0 0 2px rgba(255,255,255,.25) inset;
+}
+.screen button.up-card.evolve { background: linear-gradient(180deg, #ff9d2a, #d24a0f); box-shadow: 0 6px 0 #7a2405, 0 0 24px rgba(255,150,40,.6); }
+.up-card .up-icon { font-size: 44px; line-height: 1; }
+.up-card .up-desc { font: 14px/1.4 system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; opacity: .92; }
+.up-card .up-level { font: 12px system-ui, sans-serif; opacity: .7; }
+
+#complete-stars { font-size: 54px; letter-spacing: 8px; margin: 4px 0 8px; color: rgba(255,255,255,.2); }
+#complete-stars .on { color: #ffd23f; text-shadow: 0 4px 0 #a35b00, 0 0 20px rgba(255,200,40,.6); }
+#complete-goals { list-style: none; padding: 0; margin: 0 0 10px; font: 16px/1.9 system-ui, "PingFang TC", sans-serif; }
+#complete-goals li { opacity: .55; }
+#complete-goals li.done { opacity: 1; color: #8dff9b; }
+#complete-stats { font-family: system-ui, sans-serif; margin-bottom: 20px; }
+#complete-stats b { color: #ffcf33; font-size: 22px; }
+
+/* ---------- HUD 新元素 ---------- */
+#fire-btn {
+  --charge: 1;
+  position: absolute; right: 30px; bottom: calc(env(safe-area-inset-bottom) + 136px);
+  width: 80px; height: 80px; border-radius: 50%; border: none; padding: 5px; pointer-events: auto; touch-action: none; cursor: pointer;
+  background: conic-gradient(#ff3b30 calc(var(--charge) * 360deg), rgba(255,255,255,.18) 0);
+  box-shadow: 0 6px 18px rgba(0,0,0,.45);
+}
+#fire-btn span {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%;
+  background: #2a2d34; color: #999; font-size: 16px; font-family: inherit;
+}
+#fire-btn.ready span { background: radial-gradient(circle at 40% 35%, #ff6b5a, #b3150b); color: #fff; }
+#progress { flex: 1; max-width: 220px; margin: 6px 12px 0; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.pg-bar { width: 100%; height: 8px; border-radius: 5px; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.8); overflow: hidden; }
+.pg-fill { height: 100%; width: 0; background: linear-gradient(90deg, #ffcf33, #ff7a1a); transition: width .2s; }
+.pg-text { font: 12px system-ui, "PingFang TC", sans-serif; font-weight: 700; text-shadow: 0 1px 0 #000; white-space: nowrap; }
+#shields { font-size: 14px; min-height: 16px; letter-spacing: 1px; }

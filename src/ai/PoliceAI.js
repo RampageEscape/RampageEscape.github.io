@@ -179,8 +179,10 @@ export class PoliceAI extends Vehicle {
    *   正面撞上前车 / 自己变道撞上去 → 扣血
    */
   onPlayerCollision(player, game) {
-    if (player.collisionTag === 'PlayerDash') {
+    // 冲刺中（PlayerDash）或开着装甲车/坦克（PlayerRam）→ 警车被撞爆
+    if (player.smashes) {
       this.explode(game, player);
+      if (!player.isDashing) player.ramImpact(this.type === 'swat' ? 6 : 3);
       return;
     }
     const c = classifyContact(player, this);
