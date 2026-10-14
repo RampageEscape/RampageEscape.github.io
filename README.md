@@ -2,6 +2,8 @@
 
 **▶ 線上遊玩 / Play online：https://rampageescape.github.io/**
 
+作者 / Author：[@jimyauuu06](https://github.com/jimyauuu06)
+
 2.5D 等距视角的街机风警车追逐游戏，低多边形风格。现阶段是网页版原型（Three.js），可以在手机浏览器里玩；以后再移植到 iOS/Android（`unity/Scripts/` 里是对应的 C# 脚本）。
 
 游戏界面支持**繁体中文**（默认）和 **English**，标题和结算画面右上角一键切换，选择会被记住。文案都在 `src/i18n.js`。
