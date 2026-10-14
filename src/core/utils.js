@@ -28,5 +28,7 @@ export function mulberry32(seed) {
 }
 
 export const vibrate = (pattern) => {
-  try { navigator.vibrate?.(pattern); } catch { /* 不支持震动的设备直接忽略 */ }
+  // 浏览器要求用户先点过页面才允许震动；不支持震动的设备直接忽略
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+  try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
 };
