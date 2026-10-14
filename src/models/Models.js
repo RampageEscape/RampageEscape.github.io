@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { pick } from '../core/utils.js';
+import { kitVehicle } from './ModelLibrary.js';
 
 // 程序化生成的低多边形模型。以后换成美术做的 glTF 模型时，只需要替换这个文件。
 
@@ -72,6 +73,8 @@ function addLightbar(g, width = 0.38) {
 }
 
 export function makePlayerCar() {
+  const k = kitVehicle('sedan-sports', { length: 4.4 });
+  if (k) return k;
   const g = vehicle({ L: 4.4, W: 2.0, H: 1.45, body: 0xd8261d, cabinL: 0.36, cabinZ: -0.1, cabinH: 0.36, clearance: 0.28 });
   const root = g.userData.root, { bodyH, clearance } = g.userData.dims;
   part(root, mat(0xf5f5f5), 0.32, 0.02, 4.42, 0, clearance + bodyH + 0.01, 0); // 赛车条纹
@@ -82,6 +85,8 @@ export function makePlayerCar() {
 
 /** 进化 1：肌肉车（黑色车身 + 橙色双条纹 + 进气口） */
 export function makeMuscleCar() {
+  const k = kitVehicle('race', { length: 4.8 });
+  if (k) return k;
   const g = vehicle({ L: 4.8, W: 2.15, H: 1.55, body: 0x1d1f24, cabinL: 0.34, cabinZ: -0.12, cabinH: 0.36, clearance: 0.32 });
   const root = g.userData.root, { bodyH, clearance } = g.userData.dims, top = clearance + bodyH;
   for (const sx of [-0.3, 0.3]) part(root, mat(0xff7a1a), 0.22, 0.02, 4.82, sx, top + 0.01, 0);
@@ -93,6 +98,11 @@ export function makeMuscleCar() {
 
 /** 进化 2：装甲车（橄榄绿装甲 + 前方撞角 + 侧装甲板） */
 export function makeArmoredCar() {
+  const k = kitVehicle('suv-luxury', { length: 5.4 });
+  if (k) {
+    part(k.userData.root, mat(0x3a3d40), k.userData.dims.W * 1.05, 0.6, 0.45, 0, 0.6, 2.8); // 撞角
+    return k;
+  }
   const g = vehicle({ L: 5.4, W: 2.45, H: 2.3, body: 0x55603f, glass: 0x1a1f22, cabinL: 0.5, cabinZ: 0.02, cabinH: 0.4 });
   const root = g.userData.root;
   part(root, mat(0x3a3d40), 2.7, 0.7, 0.5, 0, 0.75, 2.85); // 撞角
@@ -132,6 +142,8 @@ export function makePlayerTank() {
 }
 
 export function makePoliceCar() {
+  const k = kitVehicle('police', { length: 4.4 });
+  if (k) { addLightbar(k); return k; }
   const g = vehicle({ L: 4.4, W: 2.0, H: 1.7, body: 0xeef1f5 });
   const { bodyH, clearance } = g.userData.dims;
   part(g.userData.root, mat(0x2b5cb8), 2.03, bodyH * 0.5, 2.0, 0, clearance + bodyH * 0.5, -0.1);
@@ -141,6 +153,8 @@ export function makePoliceCar() {
 }
 
 export function makeSwat() {
+  const k = kitVehicle('van', { length: 5.6, tint: 0x3a4250 });
+  if (k) { addLightbar(k, 0.3); return k; }
   const g = vehicle({ L: 5.6, W: 2.45, H: 2.7, body: 0x1d2026, glass: 0x14181d, cabinL: 0.74, cabinZ: -0.1, cabinH: 0.48 });
   part(g.userData.root, mat(0x3a3d42), 2.5, 0.5, 0.3, 0, 0.75, 2.9); // 防撞杠
   addLightbar(g, 0.3);
@@ -148,7 +162,11 @@ export function makeSwat() {
 }
 
 const CIV_COLORS = [0x8c2f2a, 0x4b5f8a, 0x6c7a5a, 0xcfcfcf, 0x2f3a46, 0x9b6b3d, 0x5a6e74];
+const KIT_CIVILIANS = [['sedan', 4.4], ['sedan', 4.4], ['taxi', 4.4], ['suv', 4.6], ['hatchback-sports', 4.3], ['truck', 5.2], ['delivery', 5.6], ['ambulance', 5.6], ['firetruck', 6.4], ['garbage-truck', 6.0]];
 export function makeCivilian(kind = pick(['sedan', 'sedan', 'taxi', 'suv', 'pickup'])) {
+  const [name, length] = pick(KIT_CIVILIANS);
+  const k = kitVehicle(name, { length });
+  if (k) return k;
   const color = pick(CIV_COLORS);
   if (kind === 'taxi') {
     const g = vehicle({ L: 4.4, W: 2.0, H: 1.65, body: 0xf2c12e });

@@ -19,6 +19,7 @@ import { Cannon } from './player/Cannon.js';
 import { TIERS } from './player/Vehicles.js';
 import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
+import { loadModels } from './models/ModelLibrary.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SAMPLE = {};
@@ -413,4 +414,7 @@ class Game {
   }
 }
 
-window.game = new Game(); // 挂到 window 上方便在控制台调试
+// 先加载 3D 模型（最多等 10 秒），再启动游戏；加载失败的模型会自动用方块模型代替
+Promise.race([loadModels(), new Promise((r) => setTimeout(r, 10000))]).finally(() => {
+  window.game = new Game(); // 挂到 window 上方便在控制台调试
+});
