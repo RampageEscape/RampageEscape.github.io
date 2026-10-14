@@ -12,9 +12,9 @@ import { HUD } from './ui/HUD.js';
 import { resolveCollisions } from './systems/Collisions.js';
 import { updateSirens } from './models/Models.js';
 import { clamp, damp } from './core/utils.js';
+import { t } from './i18n.js';
 
 const SKY = { city: new THREE.Color(0xd8c9b2), forest: new THREE.Color(0xdbe4e9) };
-const BIOME_NAME = { city: '郊区城市', forest: '雪地森林' };
 
 class Game {
   constructor() {
@@ -91,7 +91,7 @@ class Game {
     this.state = 'playing';
     this.spawner.prefill(this.player.z);
     this.hud.showPlaying();
-    this.hud.banner(BIOME_NAME[this.biome]);
+    this.hud.banner(this.biome);
   }
 
   get stars() {
@@ -111,7 +111,7 @@ class Game {
     this.comboTimer = CONFIG.score.comboWindow;
     const pts = Math.round((CONFIG.score[enemy.type] ?? 300) * Math.min(this.combo, 8));
     this.score += pts;
-    this.hud.popup(reason === 'crash' ? `引诱撞毁 +${pts}` : `+${pts}`, enemy.mesh.position, this.camera, this.combo > 2);
+    this.hud.popup(reason === 'crash' ? t('lured', { pts }) : `+${pts}`, enemy.mesh.position, this.camera, this.combo > 2);
     this.player.extendDash();
     this.feel.onEnemyDestroyed(power, this.combo);
     this.hud.flash('#fff6d8', 0.25 + 0.1 * power);
@@ -183,7 +183,7 @@ class Game {
     const biome = Road.biomeAt(p.z);
     if (biome !== this.biome) {
       this.biome = biome;
-      this.hud.banner(BIOME_NAME[biome]);
+      this.hud.banner(biome);
     }
     if (!p.alive) this.gameOver('WRECKED');
     else if (this.bust >= 1) this.gameOver('BUSTED');

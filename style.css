@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
 html, body {
   margin: 0; height: 100%; overflow: hidden; background: #1b1d22;
-  font-family: "Arial Black", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "Arial Black", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
   color: #fff; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
 }
 canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
@@ -37,7 +37,7 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
   box-shadow: 0 6px 18px rgba(0,0,0,.45);
 }
 #dash-btn span {
-  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  display: flex; text-align: center; line-height: 1.1; align-items: center; justify-content: center; width: 100%; height: 100%;
   border-radius: 50%; background: #2a2d34; color: #888; font-size: 17px; font-family: inherit;
 }
 #dash-btn.ready span { background: radial-gradient(circle at 40% 35%, #ffb347, #e8410f); color: #fff; }
@@ -73,13 +73,23 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .screen h1 { font-size: clamp(40px, 12vw, 72px); margin: 0; color: #ffcf33; text-shadow: 0 5px 0 #b13a0a, 0 0 30px rgba(255,120,0,.5); }
 .screen h2 { font-size: clamp(28px, 8vw, 44px); margin: 0 0 12px; color: #ff5a3c; text-shadow: 0 4px 0 #000; }
 .screen .sub { margin: 6px 0 18px; opacity: .85; letter-spacing: 3px; }
-.help { list-style: none; padding: 0; margin: 0 0 24px; font-family: system-ui, sans-serif; font-size: 15px; line-height: 1.9; opacity: .9; }
+.help { list-style: none; padding: 0; margin: 0 0 24px; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; font-size: 15px; line-height: 1.9; opacity: .9; }
 .help b { color: #ffcf33; }
 .screen button {
   font: inherit; font-size: 20px; padding: 14px 40px; border: none; border-radius: 40px; cursor: pointer;
   color: #fff; background: linear-gradient(180deg, #ff8a1f, #e8410f); box-shadow: 0 5px 0 #8f2406, 0 10px 20px rgba(0,0,0,.4);
 }
 .screen button:active { transform: translateY(3px); box-shadow: 0 2px 0 #8f2406; }
-#over-stats { font-family: system-ui, sans-serif; font-size: 17px; line-height: 1.7; }
+#over-stats { font-family: system-ui, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; font-size: 17px; line-height: 1.7; }
 #over-stats b { font-size: 26px; color: #ffcf33; }
 #best { opacity: .7; margin-bottom: 22px; }
+
+/* 語言切換按鈕（只在標題和結算畫面顯示） */
+#lang-btn {
+  position: fixed; z-index: 10; top: calc(env(safe-area-inset-top) + 14px); right: 16px;
+  font: 15px/1 system-ui, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; font-weight: 600;
+  color: #fff; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.75); border-radius: 20px;
+  padding: 9px 16px; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+#lang-btn:hover { background: rgba(0,0,0,.6); }
+#lang-btn:active { transform: scale(.96); }
