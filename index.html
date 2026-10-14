@@ -2,12 +2,57 @@
 <html lang="zh">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>My Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#1b1d22">
+  <title>Heat Rush</title>
   <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
 </head>
 <body>
-  <canvas id="game" width="800" height="600"></canvas>
-  <script src="game.js"></script>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-left">
+        <div id="score">0</div>
+        <div id="distance">0 m</div>
+      </div>
+      <div class="hud-right">
+        <div id="stars"></div>
+        <div class="bar hp"><div id="hp-fill"></div></div>
+        <div class="bar bust"><div id="bust-fill"></div></div>
+      </div>
+    </div>
+    <div id="combo"></div>
+    <button id="dash-btn" aria-label="冲刺"><span>DASH</span></button>
+  </div>
+
+  <div id="banner"></div>
+  <div id="popups"></div>
+  <div id="flash"></div>
+
+  <div id="title" class="screen">
+    <h1>HEAT RUSH</h1>
+    <p class="sub">警车追逐 · 冲刺撞毁</p>
+    <ul class="help">
+      <li><b>← →</b> 滑动变道</li>
+      <li><b>↑ ↓</b> 滑动加速 / 刹车</li>
+      <li><b>双击 / DASH / 空格</b> 冲刺：无敌，撞毁警车</li>
+      <li>别被警车包夹太久，会被捕！</li>
+    </ul>
+    <button id="start-btn">开始追逐</button>
+  </div>
+
+  <div id="gameover" class="screen hidden">
+    <h2 id="over-reason"></h2>
+    <p id="over-stats"></p>
+    <p id="best"></p>
+    <button id="retry-btn">再来一次</button>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
 </body>
 </html>
