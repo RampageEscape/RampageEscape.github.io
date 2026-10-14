@@ -1,6 +1,6 @@
 # Rampage Escape 暴走大逃亡
 
-**▶ 線上遊玩 / Play online：https://jim20060512-ops.github.io/my-game/**
+**▶ 線上遊玩 / Play online：https://rampageescape.github.io/**
 
 2.5D 等距视角的街机风警车追逐游戏，低多边形风格。现阶段是网页版原型（Three.js），可以在手机浏览器里玩；以后再移植到 iOS/Android（`unity/Scripts/` 里是对应的 C# 脚本）。
 
