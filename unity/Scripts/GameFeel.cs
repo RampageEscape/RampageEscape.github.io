@@ -21,6 +21,7 @@ public static class GameFeel
         if (Combo >= 3) HitStop.Instance?.SlowMo(0.35f, 0.35f); // 三连以上给一段慢动作
         CameraShake.Instance?.AddTrauma(0.35f + 0.15f * power);
         CameraShake.Instance?.ZoomKick(0.06f * power);
+        SpeedPostFX.Instance?.Pulse(power); // Bloom + 曝光闪一下，和顿帧同时发生
         Haptics(power >= 1.5f);
     }
 
