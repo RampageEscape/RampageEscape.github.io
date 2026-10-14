@@ -69,8 +69,8 @@ class Game {
     requestAnimationFrame((t) => this.tick(t));
   }
 
-  load(k) { try { return localStorage.getItem('heatrush.' + k); } catch { return null; } }
-  save(k, v) { try { localStorage.setItem('heatrush.' + k, v); } catch { /* 隐私模式 */ } }
+  load(k) { try { return localStorage.getItem('rampage-escape.' + k); } catch { return null; } }
+  save(k, v) { try { localStorage.setItem('rampage-escape.' + k, v); } catch { /* 隐私模式 */ } }
 
   resetRun() {
     this.player.reset();

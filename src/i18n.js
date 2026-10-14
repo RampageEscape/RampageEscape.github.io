@@ -3,7 +3,7 @@
 
 const STRINGS = {
   'zh-Hant': {
-    pageTitle: 'Heat Rush 警車狂飆',
+    pageTitle: 'Rampage Escape 暴走大逃亡',
     langButton: 'English',
     langAria: '切換成英文',
     subtitle: '警車追逐 · 衝刺撞毀',
@@ -26,7 +26,7 @@ const STRINGS = {
     forest: '雪地森林',
   },
   en: {
-    pageTitle: 'Heat Rush',
+    pageTitle: 'Rampage Escape',
     langButton: '繁體中文',
     langAria: 'Switch to Traditional Chinese',
     subtitle: 'Police Chase · Dash & Smash',
@@ -51,7 +51,7 @@ const STRINGS = {
 };
 
 const LANGS = Object.keys(STRINGS);
-const KEY = 'heatrush.lang';
+const KEY = 'rampage-escape.lang';
 const listeners = [];
 
 function loadLang() {

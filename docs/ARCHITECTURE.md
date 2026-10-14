@@ -1,4 +1,4 @@
-# Heat Rush 架构设计
+# Rampage Escape 架构设计
 
 2.5D 等距视角街机追逐游戏。网页版（Three.js）是可玩原型，`unity/Scripts/` 是移植到 iOS/Android 时的对应 C# 实现，两边的模块划分和数值一致。
 
