@@ -29,8 +29,8 @@ export class TankAI extends Vehicle {
     if (this.state === 'wreck') return this.updateWreck(dt, fx);
     this.z += this.speed * dt;
     this.sync();
-    const px = Road.centerX(player.z) + player.lateral;
-    const aim = Math.atan2(px - this.mesh.position.x, player.z - this.z) - this.mesh.rotation.y;
+    const pp = player.mesh.position;
+    const aim = Math.atan2(pp.x - this.mesh.position.x, pp.z - this.mesh.position.z) - this.mesh.rotation.y;
     this.turret.rotation.y = dampAngle(this.turret.rotation.y, aim, 4, dt);
     const ahead = this.z - player.z;
     if (player.alive && ahead > 10 && ahead < 95 && (this.fireTimer -= dt) <= 0) {
@@ -45,7 +45,7 @@ export class TankAI extends Vehicle {
     if (player.collisionTag === 'PlayerDash') {
       this.launch(new THREE.Vector3(rand(-3, 3), 9, player.speed * 0.3), new THREE.Vector3(rand(-2, 2), rand(-2, 2), rand(-2, 2)));
       this.burning = true;
-      game.fx.explosion(this.mesh.position, 2.2, player.speed * 0.3);
+      game.fx.explosion(this.mesh.position, 2.2, player.speed * 0.3, Road.heading(this.z));
       game.onEnemyDestroyed(this, 2.2, 'dash');
       return;
     }
@@ -88,7 +88,9 @@ export class Shells {
     const from = tank.muzzle.getWorldPosition(new THREE.Vector3());
     const tz = player.z + player.speed * T.shellFlight; // 预判：炮弹落地时玩家会在哪
     const tl = clamp(player.lateral + rand(-1.5, 1.5), -ROAD_HALF + 1, ROAD_HALF - 1);
-    const to = new THREE.Vector3(Road.centerX(tz) + tl, 0, tz);
+    const w = Road.sample(tz, tl);
+    const to = new THREE.Vector3(w.x, 0, w.z);
+    to.lat = tl;
     const mesh = this.pool.get();
     mesh.visible = true;
     mesh.position.copy(from);
@@ -117,10 +119,11 @@ export class Shells {
     const g = this.game, R = T.blastRadius + 1;
     g.fx.explosion(pos, 0.9);
     g.feel.onBlast();
-    const p = g.player, px = Road.centerX(p.z) + p.lateral;
-    if (Math.hypot(px - pos.x, p.z - pos.z) < R) p.hit(T.blastDamage, Math.sign(px - pos.x) || 1, 0.6);
+    const p = g.player, pp = p.mesh.position;
+    // 推开方向用道路坐标：炮弹落点在玩家哪一侧
+    if (Math.hypot(pp.x - pos.x, pp.z - pos.z) < R) p.hit(T.blastDamage, Math.sign(p.lateral - pos.lat) || 1, 0.6);
     for (const c of g.spawner.police) {
-      if (c.collidable && Math.hypot(c.mesh.position.x - pos.x, c.z - pos.z) < R) c.explode(g, null);
+      if (c.collidable && Math.hypot(c.mesh.position.x - pos.x, c.mesh.position.z - pos.z) < R) c.explode(g, null);
     }
   }
 }

@@ -2,6 +2,19 @@
 export const CONFIG = {
   road: { lanes: 4, laneWidth: 3.6, biomeLength: 800, transition: 120 },
   world: { chunkLength: 40, chunksAhead: 7, chunksBehind: 2 },
+  // 路口：十字 / T 字 / Y 型分叉
+  junction: {
+    firstAt: 440,          // 第一个路口在多少米
+    minGap: 520, maxGap: 820, // 路口之间的直路长度
+    box: 12,               // 十字路口方框的半边长（也是 90° 转弯半径）
+    forkRadius: 26,        // Y 型分叉的转弯半径
+    forkClear: 10,         // 分叉后两条路完全分开前，额外多少米不画路肩/标线
+    crossChance: 0.55,     // 生成十字路口（否则 Y 型分叉）的概率
+    decisionStart: 140,    // 路口前多少米开始可以选路
+    commitBefore: 6,       // 路口前多少米锁定选择
+    blockAfter: 150,       // 每条岔路前多少米禁止别的岔路的树/楼占用
+    keepAfter: 260,        // 通过路口后多少米清理没选的岔路
+  },
   camera: { offset: [-11, 40, -17], minWidth: 26, minHeight: 36, lookAhead: 8 },
 
   player: {

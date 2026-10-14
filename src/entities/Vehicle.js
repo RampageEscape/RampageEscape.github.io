@@ -3,6 +3,8 @@ import { Road } from '../world/Road.js';
 import { rand } from '../core/utils.js';
 
 const GRAVITY = 38;
+const SAMPLE = {};
+const UP = new THREE.Vector3(0, 1, 0);
 
 /**
  * 所有道路上实体的基类（警车、民用车、路障、坦克）。
@@ -48,15 +50,20 @@ export class Vehicle {
   }
 
   sync() {
-    this.mesh.position.set(Road.centerX(this.z) + this.lateral, 0, this.z);
-    this.mesh.rotation.y = Road.heading(this.z) + this.yawOffset;
+    const w = Road.sample(this.z, this.lateral, SAMPLE);
+    this.mesh.position.set(w.x, 0, w.z);
+    this.mesh.rotation.y = w.h + this.yawOffset;
   }
 
-  /** 进入被撞飞状态：不再参与碰撞，按简易物理飞行、弹跳，几秒后由 Spawner 回收进对象池 */
+  /**
+   * 进入被撞飞状态：不再参与碰撞，按简易物理飞行、弹跳，几秒后由 Spawner 回收进对象池。
+   * vel 用“道路局部坐标”给出（x = 道路左侧, y = 上, z = 前进方向），这里按道路朝向转成世界坐标，
+   * 所以路线转弯以后，车也会往正确的方向飞。
+   */
   launch(vel, spin) {
     this.state = 'wreck';
     this.wreck.pos.copy(this.mesh.position);
-    this.wreck.vel.copy(vel);
+    this.wreck.vel.copy(vel).applyAxisAngle(UP, Road.heading(this.z));
     this.wreck.spin.copy(spin);
     this.wreck.t = 0;
   }

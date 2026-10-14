@@ -1,37 +1,44 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { Road, ROAD_HALF } from './Road.js';
-import { GEO, mat } from '../models/Models.js';
-import { mulberry32, pick } from '../core/utils.js';
+import { Road } from './Road.js';
+import { JUNCTION_ROAD_CLEARANCE } from './LevelManager.js';
+import { mat } from '../models/Models.js';
+import { mulberry32 } from '../core/utils.js';
+import { BUILDERS, PAL } from './BiomeBuilders.js';
 
 const L = CONFIG.world.chunkLength;
-const LANES = CONFIG.road.lanes, LW = CONFIG.road.laneWidth;
-const PAL = {
-  city: { ground: 0x9b8f82, asphalt: 0x4b4d53, side: 0xc08a7c, line: 0xf2f2ea, edge: 0xe8c547 },
-  forest: { ground: 0xd8e1e6, asphalt: 0x5d5f63, side: 0xb4b1a4, line: 0xf2f2ea, edge: 0xe8c547 },
-};
-const BRICKS = [0x8e3b2f, 0xa04a36, 0x7c5a4a, 0x6aa3a0, 0xb5a58f, 0x94563f];
-const FOLIAGE = [0x6d7d2f, 0x5f7230, 0x7e8a36, 0x4f6a2e];
-const ROCKS = [0x9c9a92, 0x8a8880, 0xb0aea6];
-const WHITE = () => mat(0xffffff);
+const J = CONFIG.junction;
 
-/** 把地面/道路/标线拼成少量大网格（每种颜色一个 mesh），减少 draw call */
+/** 把地面/道路/标线拼成少量大网格（每种颜色一个 mesh），沿任意路线铺设 */
 class Ribbons {
-  constructor() { this.buckets = new Map(); }
+  constructor(path, yBase) {
+    this.path = path;
+    this.yBase = yBase;
+    this.buckets = new Map();
+    this.a = {};
+    this.b = {};
+  }
   quad(color, ax, az, bx, bz, cx, cz, dx, dz, y) {
     if (!this.buckets.has(color)) this.buckets.set(color, []);
+    y += this.yBase;
     this.buckets.get(color).push(ax, y, az, cx, y, cz, bx, y, bz, bx, y, bz, cx, y, cz, dx, y, dz);
   }
-  // 沿道路中心线的条带，a < b 是相对中心线的横向范围
-  strip(color, z0, z1, a, b, y, step = 4) {
-    let zp = z0, cp = Road.centerX(z0);
-    while (zp < z1 - 1e-6) {
-      const z = Math.min(zp + step, z1), c = Road.centerX(z);
-      this.quad(color, cp + a, zp, cp + b, zp, c + a, z, c + b, z, y);
-      zp = z; cp = c;
+  // 沿路线的条带：里程 s0~s1，横向 a~b（a < b，+lat 在左侧）
+  strip(color, s0, s1, a, b, y, step = 4) {
+    const P = this.path, A = this.a, B = this.b; // A = a 侧（右）, B = b 侧（左）
+    let s = s0;
+    P.sample(s, a, A);
+    P.sample(s, b, B);
+    let ax = A.x, az = A.z, bx = B.x, bz = B.z;
+    while (s < s1 - 1e-6) {
+      s = Math.min(s + step, s1);
+      P.sample(s, a, A);
+      P.sample(s, b, B);
+      // 顶点顺序：a 侧在前，保证法线朝上（不然会被背面剔除）
+      this.quad(color, ax, az, bx, bz, A.x, A.z, B.x, B.z, y);
+      ax = A.x; az = A.z; bx = B.x; bz = B.z;
     }
   }
-  rect(color, x0, x1, z0, z1, y) { this.quad(color, x0, z0, x1, z0, x0, z1, x1, z1, y); }
   build(group) {
     for (const [color, arr] of this.buckets) {
       const geo = new THREE.BufferGeometry();
@@ -45,7 +52,7 @@ class Ribbons {
   }
 }
 
-/** 收集同一几何体+材质的物件，最后合成 InstancedMesh（树、楼、路灯都靠它） */
+/** 收集同一几何体+材质的物件，最后合成 InstancedMesh */
 class InstanceBatch {
   constructor() { this.items = new Map(); }
   add(geo, material, x, y, z, ry, sx, sy, sz, color) {
@@ -72,48 +79,175 @@ class InstanceBatch {
   }
 }
 
+/**
+ * 一个区块的构建上下文。地图 builder 只通过它放东西：
+ *   - 用道路坐标 (s, lat) 放道具，自动换算世界坐标、可选跟随道路朝向
+ *   - 自动避开路口方框和“别的岔路”的路面（blockers）
+ *   - roadRanges() 给出可以画路肩/标线的里程区间（扣掉路口区域）
+ */
+export class ChunkCtx {
+  constructor(path, i, yBase, blockers) {
+    this.path = path;
+    this.i = i;
+    this.z0 = i * L;
+    this.z1 = this.z0 + L;
+    this.rng = mulberry32(i * 7919 + 13 + Math.round(yBase * 1e4));
+    this.rib = new Ribbons(path, yBase);
+    this.inst = new InstanceBatch();
+    this.wires = [];
+    this.blockers = blockers;
+    this.straight = path.isStraight(this.z0, this.z1);
+    this.step = this.straight ? 10 : 2;
+  }
+
+  at(s, lat) {
+    return this.path.sample(s, lat, {});
+  }
+
+  isBlocked(x, z, r) {
+    for (const b of this.blockers) {
+      if (b.box) {
+        // 路口方框：沿进入方向 0~2B，横向 ±B
+        const dx = x - b.x, dz = z - b.z;
+        const along = dx * Math.sin(b.h) + dz * Math.cos(b.h);
+        const across = dx * Math.cos(b.h) - dz * Math.sin(b.h);
+        if (along > -r - 2 && along < 2 * J.box + r + 2 && Math.abs(across) < J.box + r + 2) return true;
+      } else {
+        const lim = (JUNCTION_ROAD_CLEARANCE + r) ** 2;
+        for (const p of b.pts) if ((p.x - x) ** 2 + (p.z - z) ** 2 < lim) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 在 (s, lat) 放一个道具；被挡住时不放并返回 null。返回世界坐标，方便叠加细节 */
+  prop(geo, material, s, lat, { y = 0, ry = 0, sx = 1, sy = 1, sz = 1, color, r = 1, align = true, force = false } = {}) {
+    const w = this.at(s, lat);
+    if (!force && this.isBlocked(w.x, w.z, r)) return null;
+    this.inst.add(geo, material, w.x, y, w.z, (align ? w.h : 0) + ry, sx, sy, sz, color);
+    return w;
+  }
+
+  /** 在已知世界坐标 w 处直接放（同一棵树 / 同一栋楼的多个部件） */
+  addAt(w, geo, material, { y = 0, ry = 0, sx = 1, sy = 1, sz = 1, color, align = false } = {}) {
+    this.inst.add(geo, material, w.x, y, w.z, (align ? w.h : 0) + ry, sx, sy, sz, color);
+  }
+
+  roadRanges(extraGaps = []) {
+    let ranges = [[this.z0, this.z1]];
+    const gaps = this.path.junctions.map((j) => [j.sEntry, j.sEntry + j.boxLen]).concat(extraGaps);
+    for (const [g0, g1] of gaps) {
+      const next = [];
+      for (const [a, b] of ranges) {
+        if (g1 <= a || g0 >= b) next.push([a, b]);
+        else {
+          if (g0 > a) next.push([a, g0]);
+          if (g1 < b) next.push([g1, b]);
+        }
+      }
+      ranges = next;
+    }
+    return ranges;
+  }
+
+  nearJunction(before, after) {
+    return this.path.nearJunction(this.z0, this.z1, before, after);
+  }
+}
+
 export class WorldGenerator {
-  constructor(scene) {
+  constructor(scene, levels) {
     this.scene = scene;
-    this.chunks = new Map();
+    this.levels = levels;
+    this.chunks = new Map(); // key -> { group }
+    this.orphans = []; // 没被选中的岔路区块 { group, until }
+    this.pads = new Map(); // 路口 id -> 路口路面
   }
 
   reset() {
-    for (const g of this.chunks.values()) this.dispose(g);
+    for (const c of this.chunks.values()) this.dispose(c.group);
+    for (const o of this.orphans) this.dispose(o.group);
+    for (const g of this.pads.values()) this.dispose(g);
     this.chunks.clear();
+    this.orphans = [];
+    this.pads.clear();
   }
 
-  update(playerZ) {
+  /** 路口提交：选中出口的区块改为主路线区块，其他出口的区块留到玩家开远再清理 */
+  onCommit(j) {
+    for (const [key, c] of [...this.chunks]) {
+      const m = key.match(/^j(\d+)o(\d+):(-?\d+)$/);
+      if (!m || Number(m[1]) !== j.id) continue;
+      this.chunks.delete(key);
+      if (Number(m[2]) === j.chosen) this.chunks.set(`m:${m[3]}`, c);
+      else this.orphans.push({ group: c.group, until: j.sEntry + J.keepAfter });
+    }
+  }
+
+  update(playerS) {
     const { chunksAhead, chunksBehind } = CONFIG.world;
-    const cur = Math.floor(playerZ / L);
+    const cur = Math.floor(playerS / L);
+    const j = this.levels.junction;
+    const pendingK = j && !j.committed ? Math.round(j.sEntry / L) : Infinity;
+    const wanted = new Set();
+
     for (let i = cur - chunksBehind; i <= cur + chunksAhead; i++) {
-      if (!this.chunks.has(i)) this.chunks.set(i, this.build(i));
+      if (i < pendingK) {
+        const key = `m:${i}`;
+        wanted.add(key);
+        if (!this.chunks.has(key)) this.chunks.set(key, { group: this.build(Road.path, i, 0, null) });
+      } else {
+        // 路口还没选：每个出口各建一套区块（地面略微错开高度，避免重叠闪烁）
+        j.options.forEach((o, k) => {
+          const key = `j${j.id}o${k}:${i}`;
+          wanted.add(key);
+          if (!this.chunks.has(key)) this.chunks.set(key, { group: this.build(o.path, i, 0.004 * (k + 1), o) });
+        });
+      }
     }
-    for (const [i, g] of this.chunks) {
-      if (i < cur - chunksBehind || i > cur + chunksAhead) { this.dispose(g); this.chunks.delete(i); }
+    for (const [key, c] of this.chunks) {
+      if (!wanted.has(key)) { this.dispose(c.group); this.chunks.delete(key); }
     }
-  }
-
-  dispose(group) {
-    group.traverse((o) => {
-      if (o.userData.ownGeo) o.geometry.dispose();
-      if (o.isInstancedMesh) o.dispose();
+    this.orphans = this.orphans.filter((o) => {
+      if (playerS < o.until) return true;
+      this.dispose(o.group);
+      return false;
     });
-    this.scene.remove(group);
+
+    // 路口路面：进入视野范围就建，开远了就清
+    const active = this.levels.activeJunctions;
+    for (const jn of active) {
+      const near = jn.sEntry - playerS < (chunksAhead + 1) * L && playerS < jn.sEntry + J.keepAfter;
+      if (near && !this.pads.has(jn.id)) this.pads.set(jn.id, this.buildPad(jn));
+    }
+    for (const [id, g] of this.pads) {
+      const jn = active.find((x) => x.id === id);
+      if (!jn || playerS >= jn.sEntry + J.keepAfter) { this.dispose(g); this.pads.delete(id); }
+    }
   }
 
-  build(i) {
+  /** 这个区块需要避让的东西：附近路口的方框 + 除自己以外所有出口的路面 */
+  blockersFor(path, ownOption, s0, s1) {
+    const list = [];
+    for (const jn of this.levels.activeJunctions) {
+      if (s1 < jn.sEntry - 160 || s0 > jn.sEntry + J.blockAfter + 60) continue;
+      if (jn.type !== 'fork') list.push({ box: true, x: jn.x, z: jn.z, h: jn.h0 });
+      const mine = ownOption ?? (jn.committed && path === jn.options[jn.chosen].path ? jn.options[jn.chosen] : null);
+      for (const o of jn.options) if (o !== mine) list.push({ pts: o.samples });
+    }
+    return list;
+  }
+
+  build(path, i, yBase, ownOption) {
     const group = new THREE.Group();
-    const z0 = i * L, z1 = z0 + L;
-    const rng = mulberry32(i * 7919 + 13);
-    const rib = new Ribbons(), inst = new InstanceBatch(), wires = [];
-    if (Road.biomeAt(z0 + L / 2) === 'city') this.buildCity(i, z0, z1, rng, rib, inst, wires);
-    else this.buildForest(z0, z1, rng, rib, inst);
-    rib.build(group);
-    inst.build(group);
-    if (wires.length) {
+    const s0 = i * L;
+    const ctx = new ChunkCtx(path, i, yBase, this.blockersFor(path, ownOption, s0, s0 + L));
+    BUILDERS[path.biomeAt(s0 + L / 2)](ctx);
+    ctx.rib.build(group);
+    ctx.inst.build(group);
+    if (ctx.wires.length) {
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(wires, 3));
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(ctx.wires, 3));
       const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x2a2a2a }));
       lines.userData.ownGeo = true;
       group.add(lines);
@@ -122,151 +256,44 @@ export class WorldGenerator {
     return group;
   }
 
-  markings(rib, P, z0, z1, centerYellow, skip) {
-    for (let k = 1; k < LANES; k++) {
-      const off = -ROAD_HALF + k * LW;
-      if (centerYellow && k === LANES / 2) {
-        rib.strip(P.edge, z0, z1, off - 0.24, off - 0.1, 0.05);
-        rib.strip(P.edge, z0, z1, off + 0.1, off + 0.24, 0.05);
-        continue;
-      }
-      for (let z = Math.ceil(z0 / 9) * 9; z < z1; z += 9) {
-        if (!skip?.(z)) rib.strip(P.line, z, z + 4, off - 0.09, off + 0.09, 0.05, 4);
+  /** 十字/T 字路口的方形路面（盖住各出口在方框内重叠的部分）+ 斑马线；Y 型分叉不需要 */
+  buildPad(jn) {
+    const group = new THREE.Group();
+    this.scene.add(group);
+    if (jn.type === 'fork') return group;
+    const biome = jn.options[0].path.biomeAt(jn.sEntry - 1);
+    const h = jn.h0, cx = jn.x + Math.sin(h) * J.box, cz = jn.z + Math.cos(h) * J.box;
+    const pad = new THREE.Mesh(new THREE.PlaneGeometry(2 * J.box + 0.6, 2 * J.box + 0.6).rotateX(-Math.PI / 2), mat((PAL[biome] ?? PAL.city).asphalt));
+    pad.position.set(cx, 0.045, cz);
+    pad.rotation.y = h;
+    pad.receiveShadow = true;
+    pad.userData.ownGeo = true;
+    group.add(pad);
+
+    // 每个出口和来路的边缘画一排斑马线
+    const stripe = new THREE.PlaneGeometry(0.6, 2.4).rotateX(-Math.PI / 2);
+    const holder = new THREE.Mesh(stripe, mat(0xf2f2ea));
+    holder.visible = false;
+    holder.userData.ownGeo = true; // 由它负责释放共享的斑马线几何体
+    group.add(holder);
+    const sm = mat(0xf2f2ea);
+    for (const turn of jn.options.map((o) => o.turn).concat([Math.PI])) {
+      const ang = h + turn, ex = cx + Math.sin(ang) * (J.box - 1.6), ez = cz + Math.cos(ang) * (J.box - 1.6);
+      for (let k = -5; k <= 5; k++) {
+        const s = new THREE.Mesh(stripe, sm);
+        s.position.set(ex + Math.cos(ang) * k * 1.25, 0.06, ez - Math.sin(ang) * k * 1.25);
+        s.rotation.y = ang;
+        group.add(s);
       }
     }
-    rib.strip(P.line, z0, z1, -ROAD_HALF + 0.2, -ROAD_HALF + 0.36, 0.05);
-    rib.strip(P.line, z0, z1, ROAD_HALF - 0.36, ROAD_HALF - 0.2, 0.05);
+    return group;
   }
 
-  // ---------------- 郊区城市：直路、十字路口、红砖楼、路灯、电线杆 ----------------
-  buildCity(i, z0, z1, rng, rib, inst, wires) {
-    const P = PAL.city, SW = 4.5, cw = 7;
-    const zc = z0 + L / 2;
-    const cross = ((i % 4) + 4) % 4 === 2;
-    const inCross = (a, b = a) => cross && b > zc - cw - 1 && a < zc + cw + 1;
-
-    rib.strip(P.ground, z0, z1, -130, 130, 0, 10);
-    rib.strip(P.asphalt, z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, 10);
-    const segs = cross ? [[z0, zc - cw], [zc + cw, z1]] : [[z0, z1]];
-    for (const [a, b] of segs) {
-      rib.strip(P.side, a, b, -ROAD_HALF - SW, -ROAD_HALF, 0.16, 10);
-      rib.strip(P.side, a, b, ROAD_HALF, ROAD_HALF + SW, 0.16, 10);
-    }
-    if (cross) {
-      rib.rect(P.asphalt, -130, 130, zc - cw, zc + cw, 0.03);
-      for (let x = -ROAD_HALF + 0.4; x < ROAD_HALF; x += 1.2) {
-        rib.rect(P.line, x, x + 0.6, zc - cw - 2.8, zc - cw - 0.6, 0.05);
-        rib.rect(P.line, x, x + 0.6, zc + cw + 0.6, zc + cw + 2.8, 0.05);
-      }
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        const x = sx * (ROAD_HALF + 1), z = zc + sz * (cw + 1);
-        inst.add(GEO.cylBase, mat(0x3a3d40), x, 0, z, 0, 0.3, 5.5, 0.3);
-        inst.add(GEO.boxBase, mat(0x222428), x, 4.2, z, 0, 0.6, 1.6, 0.6);
-      }
-    }
-    this.markings(rib, P, z0, z1, false, (z) => inCross(z, z + 4));
-
-    // 两侧建筑
-    for (const s of [-1, 1]) {
-      let z = z0 + rng() * 3;
-      while (z < z1 - 4) {
-        const zEnd = Math.min(z + 9 + rng() * 8, z1);
-        if (inCross(z, zEnd)) { z = zc + cw + 1.5; continue; }
-        // 靠镜头一侧（-X）的楼压低，避免挡住马路
-        const depth = 12 + rng() * 10, h = s < 0 ? 3.5 + rng() * 3 : 7 + rng() * 16, len = zEnd - z - 0.6, zm = (z + zEnd) / 2;
-        const x = Road.centerX(zm) + s * (ROAD_HALF + SW + 1 + depth / 2);
-        const fx = x - (s * depth) / 2; // 朝向马路的立面
-        inst.add(GEO.boxBase, WHITE(), x, 0, zm, 0, depth, h, len, pick(BRICKS, rng));
-        for (let fy = 3.2; fy < h - 1.5; fy += 3.4) inst.add(GEO.boxBase, mat(0x2b3a48), fx - s * 0.08, fy, zm, 0, 0.3, 1.5, len * 0.8);
-        inst.add(GEO.boxBase, mat(0xe9e1d3), fx - s * 0.1, h - 0.6, zm, 0, 0.7, 0.6, len);
-        if (rng() < 0.5) inst.add(GEO.boxBase, WHITE(), fx - s * 0.8, 2.6, zm, 0, 1.6, 0.25, len * 0.7, pick([0xc0392b, 0x2e7d5b, 0x2d5f8b], rng));
-        if (rng() < 0.7) inst.add(GEO.boxBase, mat(0xb7b9bc), x + (rng() - 0.5) * depth * 0.5, h, zm + (rng() - 0.5) * len * 0.5, 0, 2.2, 1.3, 2.2);
-        z = zEnd + 0.3 + rng() * 1.5;
-      }
-    }
-
-    // 路灯（两侧，每 20 米）
-    for (let z = Math.ceil(z0 / 20) * 20; z < z1; z += 20) {
-      if (inCross(z)) continue;
-      for (const s of [-1, 1]) {
-        const x = Road.centerX(z) + s * (ROAD_HALF + 0.8);
-        inst.add(GEO.cylBase, mat(0x55585c), x, 0.16, z, 0, 0.22, 6.4, 0.22);
-        inst.add(GEO.boxBase, mat(0x55585c), x - s * 0.9, 6.3, z, 0, 1.9, 0.14, 0.18);
-        inst.add(GEO.boxBase, mat(0xfff3c4, { emissive: 0xffe08a }), x - s * 1.7, 6.1, z, 0, 0.7, 0.18, 0.4);
-      }
-    }
-
-    // 电线杆 + 电线（右侧，全局每 26 米一根，保证跨区块连续）
-    const poleX = (z) => Road.centerX(z) + ROAD_HALF + SW - 0.6;
-    for (let z = Math.ceil(z0 / 26) * 26; z < z1; z += 26) {
-      if (inCross(z)) continue;
-      inst.add(GEO.cylBase, mat(0x5b4636), poleX(z), 0.16, z, 0, 0.36, 10, 0.36);
-      inst.add(GEO.boxBase, mat(0x5b4636), poleX(z), 9.1, z, 0, 2.6, 0.18, 0.18);
-      for (const off of [-1.1, 1.1]) {
-        let pz = z, py = 9.3;
-        for (let k = 1; k <= 4; k++) {
-          const nz = z + (26 * k) / 4, ny = 9.3 - Math.sin((Math.PI * k) / 4) * 0.9;
-          wires.push(poleX(pz) + off, py, pz, poleX(nz) + off, ny, nz);
-          pz = nz; py = ny;
-        }
-      }
-    }
-
-    // 人行道杂物：邮筒、报箱
-    for (let k = 0; k < 3; k++) {
-      const z = z0 + rng() * L;
-      if (inCross(z)) continue;
-      const s = rng() < 0.5 ? -1 : 1;
-      inst.add(GEO.boxBase, WHITE(), Road.centerX(z) + s * (ROAD_HALF + SW - 1), 0.16, z, 0, 0.6, 1.1, 0.6, pick([0x2f5fae, 0xc0392b, 0x2f8a57], rng));
-    }
-  }
-
-  // ---------------- 雪地与森林：蜿蜒公路、松树林、巨石 ----------------
-  buildForest(z0, z1, rng, rib, inst) {
-    const P = PAL.forest;
-    rib.strip(P.ground, z0, z1, -130, 130, 0, 4);
-    rib.strip(P.side, z0, z1, -ROAD_HALF - 1.6, -ROAD_HALF, 0.012, 2);
-    rib.strip(P.side, z0, z1, ROAD_HALF, ROAD_HALF + 1.6, 0.012, 2);
-    rib.strip(P.asphalt, z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, 2);
-    this.markings(rib, P, z0, z1, true);
-
-    // 路边红头白桩
-    for (let z = Math.ceil(z0 / 12) * 12; z < z1; z += 12) {
-      for (const s of [-1, 1]) {
-        const x = Road.centerX(z) + s * (ROAD_HALF + 1.1);
-        inst.add(GEO.boxBase, mat(0xf2f2f2), x, 0, z, 0, 0.18, 0.9, 0.18);
-        inst.add(GEO.boxBase, mat(0xc9261f), x, 0.9, z, 0, 0.2, 0.2, 0.2);
-      }
-    }
-
-    for (const s of [-1, 1]) {
-      // 松树
-      const n = 36 + Math.floor(rng() * 12);
-      for (let k = 0; k < n; k++) {
-        const z = z0 + rng() * L;
-        const lat = s * (ROAD_HALF + 3.5 + Math.pow(rng(), 1.4) * 50); // 越靠近路越密
-        this.pine(inst, Road.centerX(z) + lat, z, 0.8 + rng() * 1.0, rng);
-      }
-      // 巨石（近处小、远处大）
-      for (let k = 0; k < 4; k++) {
-        if (rng() > 0.55) continue;
-        const far = k >= 2;
-        const z = z0 + rng() * L, sc = far ? 4 + rng() * 5 : 1.5 + rng() * 3;
-        const x = Road.centerX(z) + s * (ROAD_HALF + 3 + sc * 0.6 + rng() * (far ? 30 : 6));
-        const ry = rng() * 6.28;
-        inst.add(GEO.rock, WHITE(), x, sc * 0.35, z, ry, sc * 1.3, sc, sc * 1.1, pick(ROCKS, rng));
-        inst.add(GEO.rock, mat(0xf4f7f9), x, sc * 0.75, z, ry, sc * 1.05, sc * 0.45, sc * 0.9);
-      }
-    }
-  }
-
-  pine(inst, x, z, s, rng) {
-    const ry = rng() * 6.28, color = pick(FOLIAGE, rng);
-    inst.add(GEO.cylBase, mat(0x5b4030), x, 0, z, ry, 0.5 * s, 1.6 * s, 0.5 * s);
-    for (let k = 0; k < 3; k++) {
-      const r = (2.2 - k * 0.55) * s, h = 2.6 * s, y = (1.2 + k * 1.5) * s;
-      inst.add(GEO.coneBase, WHITE(), x, y, z, ry, r, h, r, color);
-      inst.add(GEO.coneBase, mat(0xf3f6f8), x, y + h * 0.55, z, ry, r * 0.55, h * 0.45, r * 0.55);
-    }
+  dispose(group) {
+    group.traverse((o) => {
+      if (o.userData.ownGeo) o.geometry.dispose();
+      if (o.isInstancedMesh) o.dispose();
+    });
+    this.scene.remove(group);
   }
 }

@@ -12,6 +12,7 @@ export class HUD {
       hp: $('hp-fill'), bust: $('bust-fill'), combo: $('combo'), banner: $('banner'),
       dash: $('dash-btn'), popups: $('popups'), flash: $('flash'), lang: $('lang-btn'),
       roadblock: $('roadblock'), rbLanes: document.querySelector('#roadblock .rb-lanes'),
+      junction: $('junction'), jnTitle: document.querySelector('#junction .jn-title'), jnOptions: document.querySelector('#junction .jn-options'),
       title: $('title'), over: $('gameover'), reason: $('over-reason'), stats: $('over-stats'), best: $('best'),
     };
     $('start-btn').addEventListener('click', () => this.onStart?.());
@@ -45,6 +46,8 @@ export class HUD {
     this.lastDistance = -1;
     this.overData = null;
     this.showRoadblock(null);
+    this.el.junction.classList.add('hidden');
+    this.jnKey = null;
   }
 
   showGameOver(reason, data) {
@@ -103,6 +106,36 @@ export class HUD {
       html += blocked.includes(i) ? '<span class="lane closed">✕</span>' : '<span class="lane open">▲</span>';
     }
     this.el.rbLanes.innerHTML = html;
+  }
+
+  /**
+   * 岔路选择面板：显示每个出口的方向箭头和通往的地图，当前选择高亮。
+   * 箭头按屏幕左→右排列；也可以直接点按钮选路（手机上更直观）。
+   */
+  showJunction(j, s) {
+    const d = j && !j.committed ? Math.round(j.sEntry - s) : -1;
+    const show = d > CONFIG.junction.commitBefore && d < CONFIG.junction.decisionStart;
+    this.el.junction.classList.toggle('hidden', !show);
+    if (!show) { this.jnKey = null; return; }
+    this.el.jnTitle.textContent = t('junction', { d });
+    const key = `${j.id}:${j.selected}`;
+    if (key === this.jnKey) return;
+    this.jnKey = key;
+    const ARROW = { left: '←', forkLeft: '↖', straight: '↑', forkRight: '↗', right: '→' };
+    const ORDER = ['left', 'forkLeft', 'straight', 'forkRight', 'right'];
+    const opts = j.options.map((o, idx) => ({ o, idx })).sort((a, b) => ORDER.indexOf(a.o.key) - ORDER.indexOf(b.o.key));
+    this.el.jnOptions.innerHTML = '';
+    for (const { o, idx } of opts) {
+      const b = document.createElement('button');
+      b.className = 'jn-opt' + (idx === j.selected ? ' selected' : '');
+      b.innerHTML = `<span class="arrow">${ARROW[o.key]}</span><span class="name">${t(o.biome)}</span>`;
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.onSelectRoute?.(idx);
+      });
+      this.el.jnOptions.appendChild(b);
+    }
   }
 
   popup(text, worldPos, camera, big = false) {

@@ -111,3 +111,21 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .rb-lanes .closed { background: #ff3b30; color: #fff; }
 .rb-lanes .open { background: #34c759; color: #fff; }
 @keyframes rbPulse { from { opacity: .75; } to { opacity: 1; } }
+
+/* 岔路选择 */
+#junction {
+  position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: auto;
+  padding: 8px 12px 10px; border-radius: 14px; background: rgba(10, 30, 60, .6);
+  border: 2px solid #4fc3f7; box-shadow: 0 0 18px rgba(79, 195, 247, .45);
+}
+.jn-title { font-size: 15px; white-space: nowrap; text-shadow: 0 2px 0 #000; }
+.jn-options { display: flex; gap: 8px; }
+.jn-opt {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 76px;
+  padding: 6px 8px; border-radius: 10px; border: 2px solid rgba(255,255,255,.35);
+  background: rgba(255,255,255,.12); color: #fff; font: inherit; cursor: pointer; touch-action: none;
+}
+.jn-opt .arrow { font-size: 24px; line-height: 1; }
+.jn-opt .name { font-size: 12px; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; font-weight: 700; white-space: nowrap; }
+.jn-opt.selected { background: #ffb020; border-color: #fff; color: #2a1600; transform: scale(1.08); box-shadow: 0 0 14px rgba(255,176,32,.8); }

@@ -1,5 +1,8 @@
 import { CONFIG } from '../config.js';
-import { clamp, smoothstep } from '../core/utils.js';
+import { clamp } from '../core/utils.js';
+import { Path } from './Path.js';
+
+export { BIOMES, BIOME_IDS } from './biomes.js';
 
 const R = CONFIG.road;
 export const ROAD_HALF = (R.lanes * R.laneWidth) / 2;
@@ -7,27 +10,20 @@ export const laneOffset = (i) => (i - (R.lanes - 1) / 2) * R.laneWidth;
 export const nearestLane = (lat) => clamp(Math.round(lat / R.laneWidth + (R.lanes - 1) / 2), 0, R.lanes - 1);
 
 /**
- * 道路中心线。所有车辆都用 (z, lateral) 的“道路坐标”表示：
- *   z       = 沿前进方向的距离
- *   lateral = 相对中心线的横向偏移（+X 是车头朝 +Z 时的左侧）
- * 城市段是直路，森林段的中心线是平滑的正弦曲线（蜿蜒山路）。
+ * 当前的主路线（玩家正在开的那条）。由 LevelManager 生成和切换。
+ * 所有车辆用“道路坐标”(z = 沿路里程, lateral = 横向偏移) 表示位置，
+ * 通过 Road.sample() 换算成世界坐标，所以路线怎么拐弯，AI 和碰撞逻辑都不用改。
  */
 export const Road = {
-  biomeAt(z) {
-    return Math.floor(Math.max(z, 0) / R.biomeLength) % 2 === 0 ? 'city' : 'forest';
+  path: new Path().addLine(400, 'city'),
+
+  sample(s, lat = 0, out = {}) {
+    return this.path.sample(s, lat, out);
   },
-  // 0 = 直路，1 = 完全弯曲；在生物群系边界平滑过渡
-  curveWeight(z) {
-    const L = R.biomeLength, T = R.transition;
-    const t = ((z % (2 * L)) + 2 * L) % (2 * L);
-    return smoothstep(L, L + T, t) * (1 - smoothstep(2 * L - T, 2 * L, t));
+  heading(s) {
+    return this.path.heading(s);
   },
-  centerX(z) {
-    const w = this.curveWeight(z);
-    if (w === 0) return 0;
-    return w * (16 * Math.sin(z * 0.011) + 7 * Math.sin(z * 0.027 + 1.3));
-  },
-  heading(z) {
-    return Math.atan2(this.centerX(z + 1) - this.centerX(z - 1), 2);
+  biomeAt(s) {
+    return this.path.biomeAt(s);
   },
 };

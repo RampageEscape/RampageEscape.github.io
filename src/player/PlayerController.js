@@ -4,6 +4,7 @@ import { clamp, damp } from '../core/utils.js';
 import { makePlayerCar } from '../models/Models.js';
 
 const P = CONFIG.player;
+const SAMPLE = {};
 const LANES = CONFIG.road.lanes;
 
 /**
@@ -144,9 +145,10 @@ export class PlayerController {
 
   syncMesh(dt) {
     const m = this.mesh;
-    m.position.set(Road.centerX(this.z) + this.lateral, 0, this.z);
+    const w = Road.sample(this.z, this.lateral, SAMPLE);
+    m.position.set(w.x, 0, w.z);
     // 车头朝向 = 道路切线方向 + 变道时的转向角
-    m.rotation.y = Road.heading(this.z) + Math.atan2(this.latVel, Math.max(this.speed, 5)) * 0.9;
+    m.rotation.y = w.h + Math.atan2(this.latVel, Math.max(this.speed, 5)) * 0.9;
     // 车身侧倾 / 加速时抬头
     this.root.rotation.z = damp(this.root.rotation.z, clamp(-this.latVel * 0.025, -0.12, 0.12), 10, dt);
     this.root.rotation.x = damp(this.root.rotation.x, this.isDashing ? -0.05 : 0, 8, dt);

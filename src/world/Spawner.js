@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { Road, laneOffset } from './Road.js';
+import { Road, BIOMES, laneOffset } from './Road.js';
 import { ObjectPool } from '../fx/ObjectPool.js';
 import { PoliceAI } from '../ai/PoliceAI.js';
 import { Civilian, Obstacle } from '../ai/Traffic.js';
@@ -53,6 +53,7 @@ export class Spawner {
     this.nextTankZ = 0;
     this.policeTimer = 2.5;
     this.roleIdx = 0;
+    this.spawnLimit = Infinity;
     this.rebuild();
   }
 
@@ -86,14 +87,21 @@ export class Spawner {
       this.spawnChaser(p, stars);
       this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2);
     }
+    // 路口还没选定时，路口后面的路线还不存在：所有前方刷新都限制在路口之前
+    const j = this.game.levels.junction;
+    const limit = j && !j.committed ? j.sEntry - 25 : Infinity;
+    if (j && !j.committed && this.nextBarricadeZ > j.sEntry - 170 && this.nextBarricadeZ < j.sEntry + 100) {
+      this.nextBarricadeZ = j.sEntry + 100; // 路障不放在路口附近，顺延到路口之后
+    }
+    this.spawnLimit = limit;
     if (this.traffic.length < S.trafficCount) this.spawnCivilian(p.z + rand(130, 200));
-    if (p.z + 170 > this.nextBarricadeZ) {
+    if (p.z + 170 > this.nextBarricadeZ && this.nextBarricadeZ < limit) {
       this.spawnBarricade(this.nextBarricadeZ, stars);
       const B = CONFIG.barricade;
       this.nextBarricadeZ += rand(B.minGap, B.maxGap) * (1.1 - stars * 0.08);
     }
     const tz = p.z + 170;
-    if (stars >= 3 && !this.tanks.length && tz > this.nextTankZ && Road.biomeAt(tz) === 'city') {
+    if (stars >= 3 && !this.tanks.length && tz > this.nextTankZ && tz < limit - 40 && BIOMES[Road.biomeAt(tz)].tanks) {
       this.spawnTank(tz);
       this.nextTankZ = tz + rand(500, 800);
     }
@@ -114,6 +122,7 @@ export class Spawner {
 
   spawnCivilian(z) {
     if (this.inBarricadeZone(z)) return; // 路障附近不刷民用车，保证安全通道畅通
+    if (z > (this.spawnLimit ?? Infinity)) return;
     const lane = randInt(0, LANES - 1);
     if (!this.laneFree(z, laneOffset(lane), 14)) return;
     const c = this.pools.civilian.get();

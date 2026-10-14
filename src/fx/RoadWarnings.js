@@ -43,8 +43,9 @@ export class RoadWarnings {
       m = new THREE.Mesh(this.geo, this.mat);
       this.scene.add(m);
     }
-    m.position.set(Road.centerX(z) + lateral, 0.07, z);
-    m.rotation.y = Road.heading(z) + Math.PI; // 让三角形尖端朝前方（屏幕上方）
+    const w = Road.sample(z, lateral);
+    m.position.set(w.x, 0.07, w.z);
+    m.rotation.y = w.h + Math.PI; // 让三角形尖端朝前方（屏幕上方）
     m.visible = true;
     return m;
   }

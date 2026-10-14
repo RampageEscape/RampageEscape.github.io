@@ -7,7 +7,7 @@ const FIRE = [0xfff6c8, 0xffc04a, 0xff7a1c, 0xd4380f, 0x4a3328].map((c) => new T
 const SMOKE_A = new THREE.Color(0x3b3532), SMOKE_B = new THREE.Color(0x9a948e);
 const DUST = new THREE.Color(0xe9e4da), SPARK = new THREE.Color(0xffe27a);
 const ZERO = new THREE.Vector3();
-const v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
+const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), v3 = new THREE.Vector3();
 
 function gradient(stops, t, out) {
   const x = Math.min(0.9999, Math.max(0, t)) * (stops.length - 1), i = Math.floor(x);
@@ -83,8 +83,9 @@ export class Effects {
   // ---------------------------------------------------------------- 组合特效
   /** 警车爆炸：闪光 + 冲击波 + 放射状火焰柱 + 火球 + 浓烟 + 碎片 + 火花
    *  carry = 爆炸物体的前进速度，火焰继承一部分，让爆炸“跟着车飞”而不是原地炸 */
-  explosion(pos, power = 1, carry = 0) {
+  explosion(pos, power = 1, carry = 0, heading = 0) {
     const c = v1.copy(pos);
+    const kx = Math.sin(heading) * carry, kz = Math.cos(heading) * carry; // 沿道路前进方向的惯性
     c.y = Math.max(c.y, 0.8);
     const sp = Math.sqrt(power);
     this.emit('flash', c, ZERO, 0.16, 3.6 * power);
@@ -94,13 +95,13 @@ export class Effects {
       const a = (i / jets) * Math.PI * 2 + rand(-0.4, 0.4), s = rand(10, 16) * sp;
       this.jets.push({
         pos: c.clone(),
-        vel: new THREE.Vector3(Math.cos(a) * s * 0.6, s * rand(0.9, 1.4), Math.sin(a) * s * 0.6 + carry * 0.6),
+        vel: new THREE.Vector3(Math.cos(a) * s * 0.6 + kx * 0.6, s * rand(0.9, 1.4), Math.sin(a) * s * 0.6 + kz * 0.6),
         life: rand(0.35, 0.6), max: 0.6, size: rand(0.8, 1.1) * sp, acc: 0,
       });
     }
-    for (let i = 0; i < 16 * power; i++) this.emit('fire', c, randDir(v2).multiplyScalar(rand(2, 8)).setZ(v2.z + carry * 0.5), rand(0.45, 0.85), rand(1, 1.9) * sp);
-    for (let i = 0; i < 10 * power; i++) this.emit('smoke', c, randDir(v2, 1).multiplyScalar(rand(1, 4)).setZ(v2.z + carry * 0.3), rand(1.2, 2.2), rand(1.4, 2.6) * sp);
-    for (let i = 0; i < 14 * power; i++) this.emit('debris', c, randDir(v2, 0.8).multiplyScalar(rand(8, 18)).setZ(v2.z + carry * 0.7), rand(1.4, 2.2), rand(0.3, 0.75));
+    for (let i = 0; i < 16 * power; i++) this.emit('fire', c, randDir(v2).multiplyScalar(rand(2, 8)).add(v3.set(kx * 0.5, 0, kz * 0.5)), rand(0.45, 0.85), rand(1, 1.9) * sp);
+    for (let i = 0; i < 10 * power; i++) this.emit('smoke', c, randDir(v2, 1).multiplyScalar(rand(1, 4)).add(v3.set(kx * 0.3, 0, kz * 0.3)), rand(1.2, 2.2), rand(1.4, 2.6) * sp);
+    for (let i = 0; i < 14 * power; i++) this.emit('debris', c, randDir(v2, 0.8).multiplyScalar(rand(8, 18)).add(v3.set(kx * 0.7, 0, kz * 0.7)), rand(1.4, 2.2), rand(0.3, 0.75));
     for (let i = 0; i < 18; i++) this.emit('spark', c, randDir(v2).multiplyScalar(rand(10, 24)), rand(0.25, 0.55), 0.14, SPARK);
   }
 

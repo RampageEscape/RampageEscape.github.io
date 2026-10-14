@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { ROAD_HALF } from '../world/Road.js';
+import { Road, ROAD_HALF } from '../world/Road.js';
 import { Vehicle } from '../entities/Vehicle.js';
 import { makePoliceCar, makeSwat } from '../models/Models.js';
 import { clamp, damp, lerp, rand, smoothstep } from '../core/utils.js';
@@ -239,7 +239,7 @@ export class PoliceAI extends Vehicle {
       new THREE.Vector3(rand(-6, 6), rand(-5, 5), dir * rand(4, 9)),
     );
     this.burning = true;
-    game.fx.explosion(this.mesh.position, power, fwd);
+    game.fx.explosion(this.mesh.position, power, fwd, Road.heading(this.z));
     game.onEnemyDestroyed(this, power, source === game.player ? 'dash' : 'crash');
   }
 }
