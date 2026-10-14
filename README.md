@@ -1,6 +1,14 @@
-# Heat Rush
+# Heat Rush 警車狂飆
+
+**▶ 線上遊玩 / Play online：https://jim20060512-ops.github.io/my-game/**
 
 2.5D 等距视角的街机风警车追逐游戏，低多边形风格。现阶段是网页版原型（Three.js），可以在手机浏览器里玩；以后再移植到 iOS/Android（`unity/Scripts/` 里是对应的 C# 脚本）。
+
+游戏界面支持**繁体中文**（默认）和 **English**，标题和结算画面右上角一键切换，选择会被记住。文案都在 `src/i18n.js`。
+
+## 部署
+
+网站托管在 GitHub Pages（免费、HTTPS、全球 CDN），从 `main` 分支根目录直接发布。推送到 `main` 后一两分钟自动更新，不需要另外操作。Three.js 已经放在 `vendor/` 里，不依赖外部 CDN。
 
 ## 玩法
 
