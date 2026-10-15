@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "game", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8123"], "port": 8123 }
+    { "name": "game", "runtimeExecutable": "python3", "runtimeArgs": [".claude/devserver.py", "8124"], "port": 8124 }
   ]
 }

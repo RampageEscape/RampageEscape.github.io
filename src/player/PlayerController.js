@@ -4,6 +4,7 @@ import { Road, ROAD_HALF, laneOffset, nearestLane } from '../world/Road.js';
 import { clamp, damp } from '../core/utils.js';
 import { TIERS } from './Vehicles.js';
 import { spinWheels } from '../models/ModelLibrary.js';
+import { GLOW_TEX } from '../fx/Particles.js';
 
 const P = CONFIG.player;
 const SAMPLE = {};
@@ -24,10 +25,12 @@ export class PlayerController {
     this.scene = scene;
     this.events = events; // { onDashStart, onDashEnd, onHit, onBump, onShieldBreak, onLand }
     this.mesh = null;
+    // 霓虹底盘灯：车底一片柔和的发光，平时淡淡的，冲刺时变成很亮的 HDR 光（会被 Bloom 放大）
     this.aura = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: GLOW_TEX, color: 0x46e6ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
+    this.aura.renderOrder = 2;
     this.bubble = new THREE.Mesh(
       new THREE.IcosahedronGeometry(1, 1),
       new THREE.MeshBasicMaterial({ color: 0x5ad1ff, transparent: true, opacity: 0.22, depthWrite: false, wireframe: true }),
@@ -78,8 +81,8 @@ export class PlayerController {
     this.muzzle = this.mesh.userData.muzzle ?? null;
     this.length = this.tier.length;
     this.width = this.tier.width;
-    this.aura.scale.set(this.width + 0.6, 1.8, this.length + 1);
-    this.aura.position.y = 0.9;
+    this.aura.scale.set(this.width * 2.4, 1, this.length * 1.7);
+    this.aura.position.y = 0.08;
     this.bubble.scale.set(this.width * 0.9 + 0.6, 1.8, this.length * 0.65 + 0.4);
     this.bubble.position.y = 0.9;
     this.root.add(this.aura, this.bubble);
@@ -254,8 +257,8 @@ export class PlayerController {
     this.root.rotation.z = damp(this.root.rotation.z, clamp(-this.latVel * 0.025, -0.12, 0.12), 10, dt);
     this.root.rotation.x = damp(this.root.rotation.x, pitch, 8, dt);
     // 冲刺光环、护盾、受伤闪烁
-    this.aura.visible = this.isDashing;
-    if (this.isDashing) this.aura.material.opacity = 0.25 + 0.15 * Math.sin(performance.now() * 0.03);
+    const glow = this.isDashing ? 2.6 + 0.6 * Math.sin(performance.now() * 0.03) : 0.55;
+    this.aura.material.color.setRGB(0.25 * glow, 0.9 * glow, 1.0 * glow);
     this.bubble.visible = this.shields > 0;
     if (this.shields > 0) {
       this.bubble.rotation.y += dt * 1.5;

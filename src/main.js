@@ -21,6 +21,10 @@ import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
 import { loadModels } from './models/ModelLibrary.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SAMPLE = {};
@@ -61,6 +65,16 @@ class Game {
     this.ground.position.y = -0.03;
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
+
+    // Bloom 光晕：阈值 1.6 → 只有“比白还亮”（HDR）的东西会发光：火焰、火花、警灯、车灯、霓虹
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.65, 0.22, 1.6);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+    this.bloomOn = true;
+    this.bloomKick = 0;
+    this.perf = { avg: 16, slow: 0 };
 
     this.levels = new LevelManager();
     this.levels.onCommit = (j) => {
@@ -269,6 +283,7 @@ class Game {
     this.hud.popup(reason === 'crash' ? t('lured', { pts }) : `+${pts}`, enemy.mesh.position, this.camera, this.combo > 2);
     this.player.extendDash();
     this.feel.onEnemyDestroyed(power, this.combo);
+    this.bloomKick = Math.max(this.bloomKick, 0.45 * power); // 爆炸瞬间光晕冲高
     this.hud.flash('#fff6d8', 0.25 + 0.1 * power);
     this.bust = Math.max(0, this.bust - 0.3);
   }
@@ -314,10 +329,31 @@ class Game {
 
   // ---------------- 主循环 ----------------
   tick(now) {
-    this.update(Math.min(0.05, (now - this.last) / 1000));
+    const frame = Math.min(0.05, (now - this.last) / 1000);
+    this.update(frame);
     this.last = now;
-    this.renderer.render(this.scene, this.camera);
+    this.watchPerformance(frame);
+    if (this.bloomOn) {
+      this.bloomKick = damp(this.bloomKick, 0, 6, frame);
+      this.bloom.strength = 0.7 + this.bloomKick;
+      this.composer.render(frame);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
     requestAnimationFrame((t) => this.tick(t));
+  }
+
+  /** 低端手机保护：平均帧时间持续超过 26ms（< 38fps）就关掉 Bloom 并降低像素比 */
+  watchPerformance(dt) {
+    const pf = this.perf;
+    pf.avg = pf.avg * 0.95 + dt * 1000 * 0.05;
+    pf.slow = pf.avg > 26 ? pf.slow + dt : 0;
+    if (pf.slow > 3 && this.bloomOn) {
+      this.bloomOn = false;
+      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      this.resize();
+      pf.slow = 0;
+    }
   }
 
   update(realDt) {
@@ -401,6 +437,7 @@ class Game {
     cam.lookAt(this.camTarget);
     cam.rotateZ(this.feel.shake.roll);
     cam.zoom = this.feel.zoom;
+    this.fx.setPixelScale(this.renderer.domElement.height / ((cam.top - cam.bottom) / cam.zoom));
     cam.updateProjectionMatrix();
     this.sun.position.copy(this.camTarget).add(this.sunOffset);
     this.sun.target.position.copy(this.camTarget);
@@ -409,6 +446,8 @@ class Game {
   resize() {
     const w = innerWidth, h = innerHeight, aspect = w / h;
     this.renderer.setSize(w, h);
+    this.composer?.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer?.setSize(w, h);
     const C = CONFIG.camera;
     const halfW = Math.max(C.minWidth / 2, (C.minHeight / 2) * aspect), halfH = halfW / aspect;
     Object.assign(this.camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });

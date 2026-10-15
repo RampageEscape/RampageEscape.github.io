@@ -27,8 +27,9 @@ const SIREN_RED = new THREE.MeshBasicMaterial({ color: 0xff2020 });
 const SIREN_BLUE = new THREE.MeshBasicMaterial({ color: 0x2050ff });
 export function updateSirens(t) {
   const on = Math.floor(t * 7) % 2 === 0;
-  SIREN_RED.color.setHex(on ? 0xff3030 : 0x4a0d0d);
-  SIREN_BLUE.color.setHex(on ? 0x101a40 : 0x3a70ff);
+  // 数值大于 1 = HDR，经过 Bloom 会发出光晕
+  if (on) { SIREN_RED.color.setRGB(7, 0.5, 0.4); SIREN_BLUE.color.setRGB(0.05, 0.08, 0.3); }
+  else { SIREN_RED.color.setRGB(0.3, 0.04, 0.04); SIREN_BLUE.color.setRGB(0.4, 0.9, 7); }
 }
 
 function part(parent, material, sx, sy, sz, x, y, z, geo = GEO.box) {
