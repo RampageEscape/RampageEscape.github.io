@@ -2,6 +2,7 @@ import { CONFIG } from '../config.js';
 import { ROAD_HALF } from './Road.js';
 import { GEO, mat } from '../models/Models.js';
 import { pick } from '../core/utils.js';
+import { buildNeon, NEON_PAL } from './NeonBuilder.js';
 
 // 五张地图的区块构建器。全部通过 ChunkCtx 放东西：坐标都是道路坐标 (s, lat)，
 // 所以无论路线怎么转弯，楼、树、护栏都会自动沿着道路摆放，并避开别的岔路。
@@ -16,6 +17,7 @@ export const PAL = {
   desert: { ground: 0xe3c48d, asphalt: 0x5c5650, side: 0xcaa36e, line: 0xf2f2ea, edge: 0xe8c547 },
   coast: { ground: 0x86a85a, asphalt: 0x55585e, side: 0xc9c2ad, line: 0xf2f2ea, edge: 0xe8c547, sea: 0x2f8fc4, foam: 0xf4f8fa, sand: 0xead9a8 },
   harbor: { ground: 0x8d9096, asphalt: 0x45474c, side: 0xa7a9ad, line: 0xf2f2ea, edge: 0xe8c547 },
+  neon: { ...NEON_PAL, edge: 0xe8c547 },
 };
 const BRICKS = [0x8e3b2f, 0xa04a36, 0x7c5a4a, 0x6aa3a0, 0xb5a58f, 0x94563f];
 const FOLIAGE = [0x6d7d2f, 0x5f7230, 0x7e8a36, 0x4f6a2e];
@@ -317,4 +319,4 @@ function buildHarbor(ctx) {
   }
 }
 
-export const BUILDERS = { city: buildCity, forest: buildForest, desert: buildDesert, coast: buildCoast, harbor: buildHarbor };
+export const BUILDERS = { city: buildCity, forest: buildForest, desert: buildDesert, coast: buildCoast, harbor: buildHarbor, neon: buildNeon };

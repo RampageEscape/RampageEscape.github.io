@@ -40,11 +40,12 @@ class Ribbons {
     }
   }
   build(group) {
+    // color 可以是颜色值（用缓存的 Lambert 材质），也可以直接是一个材质（例如霓虹灯带的发光材质）
     for (const [color, arr] of this.buckets) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
       geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, mat(color));
+      const m = new THREE.Mesh(geo, typeof color === 'number' ? mat(color) : color);
       m.receiveShadow = true;
       m.userData.ownGeo = true;
       group.add(m);
@@ -69,9 +70,9 @@ class InstanceBatch {
       list.forEach((d, i) => {
         m4.compose(p.set(d[0], d[1], d[2]), q.setFromEuler(e.set(0, d[3], 0)), s.set(d[4], d[5], d[6]));
         im.setMatrixAt(i, m4);
-        if (colored) im.setColorAt(i, c.setHex(d[7] ?? 0xffffff));
+        if (colored) im.setColorAt(i, Array.isArray(d[7]) ? c.setRGB(d[7][0], d[7][1], d[7][2]) : c.setHex(d[7] ?? 0xffffff)); // 数组 = HDR 颜色
       });
-      im.castShadow = true;
+      im.castShadow = !material.transparent && !material.isMeshBasicMaterial; // 发光体和光晕不投影
       im.receiveShadow = true;
       im.frustumCulled = false;
       group.add(im);
@@ -95,6 +96,7 @@ export class ChunkCtx {
     this.rib = new Ribbons(path, yBase);
     this.inst = new InstanceBatch();
     this.wires = [];
+    this.extraMeshes = []; // builder 自己合并好的网格（例如霓虹大楼）
     this.blockers = blockers;
     this.straight = path.isStraight(this.z0, this.z1);
     this.step = this.straight ? 10 : 2;
@@ -245,6 +247,7 @@ export class WorldGenerator {
     BUILDERS[path.biomeAt(s0 + L / 2)](ctx);
     ctx.rib.build(group);
     ctx.inst.build(group);
+    for (const m of ctx.extraMeshes) group.add(m);
     if (ctx.wires.length) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(ctx.wires, 3));

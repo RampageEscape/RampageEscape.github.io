@@ -12,6 +12,8 @@ export const BIOMES = {
   desert: { curve: 0.7, tanks: true, sky: 0xf0d9b0, ground: 0xe3c48d },
   coast: { curve: 0.85, tanks: false, sky: 0xbfe3f2, ground: 0x86a85a },
   harbor: { curve: 0, tanks: true, sky: 0xc9cdd2, ground: 0x8d9096 },
+  // 夜晚地图：天光很暗，靠霓虹灯带、发光窗户和 Bloom 照亮
+  neon: { curve: 0.3, tanks: true, sky: 0x0b0820, ground: 0x15121f, night: true },
 };
 
 export const BIOME_IDS = Object.keys(BIOMES);

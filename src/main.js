@@ -51,7 +51,8 @@ class Game {
     this.camOffset = new THREE.Vector3(...CONFIG.camera.offset);
     this.camTarget = new THREE.Vector3();
 
-    this.scene.add(new THREE.HemisphereLight(0xfff3df, 0x6b5d4a, 1.5));
+    this.hemi = new THREE.HemisphereLight(0xfff3df, 0x6b5d4a, 1.5);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
     this.sunOffset = new THREE.Vector3(22, 45, -8);
     this.sun.castShadow = true;
@@ -418,6 +419,9 @@ class Game {
     this.scene.background.lerp(tmpColor.setHex(b.sky), k);
     this.scene.fog.color.copy(this.scene.background);
     this.ground.material.color.lerp(tmpColor.setHex(b.ground), k);
+    // 夜晚地图把太阳和天光调暗，让霓虹和发光窗户成为主光源
+    this.sun.intensity = damp(this.sun.intensity, b.night ? 0.35 : 2.6, 1.5, dt);
+    this.hemi.intensity = damp(this.hemi.intensity, b.night ? 0.55 : 1.5, 1.5, dt);
     this.ground.position.set(this.camTarget.x, -0.03, this.camTarget.z);
     this.snowWeight = damp(this.snowWeight ?? 0, b.snow ? 1 : 0, 1.5, dt);
     this.snow.update(dt, this.camTarget, this.snowWeight);
