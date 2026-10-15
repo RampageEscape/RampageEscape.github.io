@@ -20,6 +20,7 @@ import { TIERS } from './player/Vehicles.js';
 import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
 import { loadModels } from './models/ModelLibrary.js';
+import { Progression } from './systems/Progression.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -81,7 +82,10 @@ class Game {
     this.levels.onCommit = (j) => {
       this.world.onCommit(j);
       // 每过一个路口，前方就有一个改装站
-      if (this.state === 'playing') this.features.addStation(j.sEntry + j.options[j.chosen].boxLen + CONFIG.features.stationAfterJunction);
+      if (this.state === 'playing') {
+        this.features.addStation(j.sEntry + j.options[j.chosen].boxLen + CONFIG.features.stationAfterJunction);
+        this.missionEvent('junctions');
+      }
     };
     this.world = new WorldGenerator(this.scene, this.levels);
     this.fx = new Effects(this.scene);
@@ -89,7 +93,9 @@ class Game {
     this.snow = new Snow(this.scene);
     this.hud = new HUD();
     this.player = new PlayerController(this.scene, {
-      onDashStart: () => { this.feel.onDashStart(); this.fx.decal('ring', this.player.mesh.position, 0.35, 7, 0x66e0ff); },
+      onDashStart: () => { this.feel.onDashStart(); this.dashKills = 0; this.fx.decal('ring', this.player.mesh.position, 0.35, 7, 0x66e0ff); },
+      onRampageStart: () => this.onRampage(true),
+      onRampageEnd: () => this.onRampage(false),
       onHit: (p, dmg) => this.onPlayerHit(dmg),
       onShieldBreak: () => this.onShieldBreak(),
       onLand: (p, impact) => this.onLand(impact),
@@ -119,10 +125,13 @@ class Game {
     this.state = 'title';
     this.time = 0;
     this.best = Number(this.load('best') || 0);
+    this.prog = new Progression();
+    this.hud.prog = this.prog;
     this.bestDist = Number(this.load('bestDist') || 0);
     try { this.progress = JSON.parse(this.load('progress')) || null; } catch { this.progress = null; }
     this.progress ??= { unlocked: 1, stars: {} };
     this.resetRun();
+    this.hud.showTitle();
     addEventListener('resize', () => this.resize());
     this.resize();
     this.last = performance.now();
@@ -142,6 +151,9 @@ class Game {
     this.spawner.reset();
     this.features.reset();
     this.cannon.reset();
+    this.fever = 0; // 暴走值 0~1
+    this.dashKills = 0;
+    this.coinDist = 0;
     if (this.level) this.features.setFinish(this.level.length);
     this.camYaw = 0;
     this.score = 0;
@@ -157,6 +169,9 @@ class Game {
   /** 开始一局：{ mode: 'endless' } 或 { mode: 'level', level } */
   startRun(opts) {
     this.resetRun(opts);
+    this.prog.startRun();
+    this.prog.applyGarage(this.player);
+    this.hud.showMissions(this.prog.missions);
     this.state = 'playing';
     this.spawner.prefill(this.player.z);
     this.hud.showPlaying();
@@ -213,7 +228,90 @@ class Game {
   }
 
   // ---------------- 道具 / 跳台 / 护盾 ----------------
+  // ---------------- 擦边 / 暴走 / 任务 / 金币 ----------------
+  addFever(x) {
+    const p = this.player;
+    if (p.rampage > 0 || this.state !== 'playing') return;
+    this.fever = Math.min(1, this.fever + x);
+    if (this.fever >= 1) {
+      this.fever = 0;
+      p.startRampage(this.prog.rampageSeconds);
+    }
+  }
+
+  onRampage(on) {
+    this.hud.setRampage(on);
+    if (!on) return;
+    this.feel.shake.add(0.4);
+    this.feel.slowMo(0.4, 0.45);
+    this.bloomKick = 1.2;
+    this.fx.decal('ring', this.player.mesh.position, 0.6, 14, 0xff4fd8);
+    this.hud.popup(t('rampageOn'), this.player.mesh.position, this.camera, true);
+    this.missionEvent('rampage');
+  }
+
+  /** 贴着车擦过去（没撞到）：加分、加暴走值、冲刺冷却缩短 */
+  onNearMiss(e) {
+    const p = this.player, pts = 150;
+    this.score += pts;
+    this.prog.earn(2);
+    p.dashCooldown = Math.max(0, p.dashCooldown - 0.6);
+    this.addFever(0.1);
+    this.feel.shake.add(0.05);
+    this.feel.zoomKick += 0.02;
+    const mid = e.mesh.position.clone().lerp(p.mesh.position, 0.5);
+    mid.y = 0.8;
+    for (let i = 0; i < 8; i++) this.fx.spark(mid, new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 4, (Math.random() - 0.5) * 8), 0.3, [0.6, 2.4, 3.4]);
+    this.hud.popup(`${t('nearMiss')} +${pts}`, mid, this.camera);
+    this.missionEvent('nearMiss');
+  }
+
+  checkNearMiss() {
+    const p = this.player;
+    for (const e of this.spawner.entities) {
+      if (!e.collidable || (e.type !== 'civilian' && e.mode !== 'chase')) continue;
+      const side = Math.sign(e.z - p.z) || 1;
+      if (e.nmSide !== undefined && side !== e.nmSide && !p.airborne && !p.smashes) {
+        const gap = Math.abs(e.lateral - p.lateral) - (e.colW + p.colW) / 2;
+        if (gap > -0.1 && gap < 1.3) this.onNearMiss(e);
+      }
+      e.nmSide = side;
+    }
+  }
+
+  /** 任务事件：完成时发金币、弹提示 */
+  missionEvent(id, amount = 1, mode = 'add') {
+    if (this.state !== 'playing') return;
+    for (const m of this.prog.track(id, amount, mode)) {
+      this.hud.banner('missionDone', { n: m.paid, text: this.hud.missionText(m) });
+      this.feel.shake.add(0.1);
+    }
+    this.hud.showMissions(this.prog.missions);
+  }
+
+  onHeliEscaped() {
+    if (this.state !== 'playing') return;
+    this.score += 500;
+    this.prog.earn(15);
+    this.hud.banner('heliEscaped');
+  }
+
+  onHeliDown(heli) {
+    if (this.state !== 'playing') return;
+    this.score += 2000;
+    this.prog.earn(60);
+    this.kills++;
+    this.missionEvent('kills');
+    this.feel.onEnemyDestroyed(2.2, ++this.combo);
+    this.bloomKick = 1.3;
+    this.hud.banner('heliDown');
+    this.hud.popup('+2000', heli.mesh.position, this.camera, true);
+  }
+
   onPickup(kind, pos) {
+    this.prog.earn(3);
+    this.addFever(0.06);
+    this.missionEvent('pickups');
     const p = this.player;
     if (kind === 'shield') p.shields = Math.min(3, p.shields + 1);
     else if (kind === 'nitro') p.dashCooldown = 0;
@@ -226,6 +324,8 @@ class Game {
   }
 
   onJump() {
+    this.addFever(0.08);
+    this.missionEvent('jumps');
     this.score += 200;
     this.feel.slowMo(0.55, 0.35);
     this.feel.shake.add(0.12);
@@ -260,7 +360,9 @@ class Game {
     this.feel.slowMo(0.3, 0.8);
     this.hud.flash('#fff6d8', 0.5);
     const hasNext = LEVELS.indexOf(lv) < LEVELS.length - 1;
-    setTimeout(() => this.hud.showComplete({ stars, goals, score: Math.floor(this.score), kills: this.kills, hasNext }), 900);
+    this.prog.endRun();
+    const coins = { run: this.prog.runCoins, total: this.prog.coins };
+    setTimeout(() => this.hud.showComplete({ stars, goals, score: Math.floor(this.score), kills: this.kills, hasNext, coins }), 900);
   }
 
   /** 路口决策区内，左右/上滑是选岔路；其他时候照常变道/加减速 */
@@ -277,6 +379,10 @@ class Game {
   onEnemyDestroyed(enemy, power, reason) {
     if (this.state !== 'playing') return;
     this.kills++;
+    this.prog.earn(enemy.type === 'tank' ? 40 : enemy.type === 'swat' ? 10 : 5);
+    this.addFever(enemy.type === 'tank' ? 0.4 : 0.12);
+    this.missionEvent('kills');
+    if (this.player.isDashing) this.missionEvent('dashCombo', ++this.dashKills, 'max');
     this.combo++;
     this.comboTimer = CONFIG.score.comboWindow;
     const pts = Math.round((CONFIG.score[enemy.type] ?? 300) * Math.min(this.combo, 8));
@@ -325,7 +431,9 @@ class Game {
       this.save('bestDist', this.bestDist);
       bestLabel = { key: 'bestDist', vars: { d: this.bestDist } };
     }
-    setTimeout(() => this.hud.showGameOver(reason, { score, distance, kills: this.kills, best: this.best, bestLabel }), 1300);
+    this.prog.endRun();
+    const coins = { run: this.prog.runCoins, total: this.prog.coins };
+    setTimeout(() => this.hud.showGameOver(reason, { score, distance, kills: this.kills, best: this.best, bestLabel, coins }), 1300);
   }
 
   // ---------------- 主循环 ----------------
@@ -402,6 +510,15 @@ class Game {
     // 被捕判定：被 2 辆以上警车贴身包夹时，被捕条持续上涨（冲刺、飞在空中、开坦克时不会被捕）
     const boxed = !p.isDashing && !p.airborne && !p.tier.cannon && this.spawner.copsNear(p, 5.5, 5.5) >= 2;
     this.bust = clamp(this.bust + (boxed ? 0.55 : -0.7) * dt, 0, 1);
+
+    this.checkNearMiss();
+    // 每跑 100 米 1 枚金币；距离任务
+    const hundreds = Math.floor(this.distance / 100);
+    if (hundreds > this.coinDist) {
+      this.prog.earn(hundreds - this.coinDist);
+      this.coinDist = hundreds;
+      this.missionEvent('distance', this.distance, 'max');
+    }
 
     const biome = Road.biomeAt(p.z);
     if (biome !== this.biome) {

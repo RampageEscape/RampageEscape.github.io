@@ -66,6 +66,8 @@ export class PlayerController {
     this.isDashing = false;
     this.dashTimer = 0;
     this.dashCooldown = 0;
+    this.rampage = 0; // 暴走模式剩余秒数
+    this.sizeMul = 1;
     this.alive = true;
     this.syncMesh(0);
   }
@@ -103,13 +105,13 @@ export class PlayerController {
   // ---- 碰撞系统读取的属性 ----
   /** Player = 普通；PlayerDash = 冲刺中；PlayerRam = 重型车辆（装甲车/坦克）直接撞爆警车 */
   get collisionTag() {
-    if (this.isDashing) return 'PlayerDash';
+    if (this.isDashing || this.rampage > 0) return 'PlayerDash'; // 暴走中和冲刺一样，撞什么炸什么
     return this.tier.ram ? 'PlayerRam' : 'Player';
   }
   get smashes() { return this.collisionTag !== 'Player'; }
   get airborne() { return this.y > 0.6; }
-  get colW() { return this.width; }
-  get colL() { return this.length; }
+  get colW() { return this.width * this.sizeMul; }
+  get colL() { return this.length * this.sizeMul; }
   get maxHp() { return this.stats.maxHp; }
   get dashReady() { return this.alive && !this.isDashing && this.dashCooldown <= 0; }
   get dashCharge() { return this.isDashing ? 1 : 1 - this.dashCooldown / this.stats.dashCooldown; }
@@ -143,6 +145,12 @@ export class PlayerController {
     this.events.onDashEnd?.(this);
   }
 
+  /** 暴走模式：车身变大、无敌、加速，撞到的一切都会爆炸 */
+  startRampage(seconds) {
+    this.rampage = seconds;
+    this.events.onRampageStart?.(this);
+  }
+
   /** 从跳台起飞 */
   jump(power = 13) {
     if (this.airborne || !this.alive) return false;
@@ -159,7 +167,7 @@ export class PlayerController {
 
   /** 被撞：返回 true 表示真的受到了伤害（冲刺/无敌帧/护盾时免疫） */
   hit(damage, pushDir = 0, speedMul = 0.6) {
-    if (!this.alive || this.isDashing || this.invuln > 0) return false;
+    if (!this.alive || this.isDashing || this.rampage > 0 || this.invuln > 0) return false;
     if (this.shields > 0) {
       // 护盾抵挡这一次伤害
       this.shields--;
@@ -209,6 +217,11 @@ export class PlayerController {
       this.dashCooldown = Math.max(0, this.dashCooldown - dt);
     }
     this.invuln = Math.max(0, this.invuln - dt);
+    if (this.rampage > 0 && (this.rampage -= dt) <= 0) {
+      this.rampage = 0;
+      this.events.onRampageEnd?.(this);
+    }
+    this.sizeMul = damp(this.sizeMul, this.rampage > 0 ? 1.35 : 1, 6, dt);
 
     // 纵向速度：滑动产生的速度偏移逐渐回落到巡航速度
     const st = this.stats, cruise = st.baseSpeed + this.tier.speed;
@@ -216,6 +229,7 @@ export class PlayerController {
     this.speedBias = Math.abs(this.speedBias) <= decay ? 0 : this.speedBias - Math.sign(this.speedBias) * decay;
     let target = clamp(cruise + this.speedBias, P.minSpeed, st.maxSpeed + this.tier.speed);
     if (this.isDashing) target *= P.dash.speedMul;
+    else if (this.rampage > 0) target *= 1.3;
     if (!this.alive) target = 0;
     const rate = target > this.speed ? (this.isDashing ? P.accel * 5 : P.accel) : P.brake;
     this.speed += clamp(target - this.speed, -rate * dt, rate * dt);
@@ -257,8 +271,13 @@ export class PlayerController {
     this.root.rotation.z = damp(this.root.rotation.z, clamp(-this.latVel * 0.025, -0.12, 0.12), 10, dt);
     this.root.rotation.x = damp(this.root.rotation.x, pitch, 8, dt);
     // 冲刺光环、护盾、受伤闪烁
-    const glow = this.isDashing ? 2.6 + 0.6 * Math.sin(performance.now() * 0.03) : 0.55;
-    this.aura.material.color.setRGB(0.25 * glow, 0.9 * glow, 1.0 * glow);
+    m.scale.setScalar(this.sizeMul);
+    const pulse = Math.sin(performance.now() * 0.03);
+    if (this.rampage > 0) this.aura.material.color.setRGB(3.2 + pulse, 0.3, 2.4 + pulse * 0.6); // 暴走：粉色霓虹
+    else {
+      const glow = this.isDashing ? 2.6 + 0.6 * pulse : 0.55;
+      this.aura.material.color.setRGB(0.25 * glow, 0.9 * glow, 1.0 * glow);
+    }
     this.bubble.visible = this.shields > 0;
     if (this.shields > 0) {
       this.bubble.rotation.y += dt * 1.5;

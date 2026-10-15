@@ -35,6 +35,7 @@ export class Vehicle {
     this.removeMe = false;
     this.burning = false;
     this.wheelZ = z;
+    this.nmSide = undefined; // 擦边检测用：上一帧在玩家前面还是后面
     this.mesh.rotation.set(0, 0, 0);
     this.root?.rotation.set(0, 0, 0);
     this.mesh.visible = true;

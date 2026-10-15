@@ -26,6 +26,8 @@
       <div class="hud-left">
         <div id="score">0</div>
         <div id="distance"></div>
+        <div id="coins"></div>
+        <ul id="missions"></ul>
       </div>
       <div id="progress" class="hidden">
         <div class="pg-bar"><div class="pg-fill"></div></div>
@@ -34,6 +36,7 @@
       <div class="hud-right">
         <div id="stars"></div>
         <div class="bar hp"><div id="hp-fill"></div></div>
+        <div class="bar fever"><div id="fever-fill"></div></div>
         <div id="shields"></div>
         <div class="bar bust"><div id="bust-fill"></div></div>
       </div>
@@ -51,6 +54,7 @@
     <button id="dash-btn" data-i18n-aria="dashAria"><span data-i18n="dash">衝刺</span></button>
   </div>
 
+  <div id="rampage-fx" class="hidden"></div>
   <div id="banner"></div>
   <div id="popups"></div>
   <div id="flash"></div>
@@ -66,17 +70,27 @@
       <li data-i18n="helpDash"><b>雙擊 / DASH / 空白鍵</b> 衝刺：無敵，撞毀警車</li>
       <li data-i18n="helpJunction"><b>路口</b> 滑動選擇岔路，通往不同地圖</li>
       <li data-i18n="helpStation"><b>改裝站</b> 升級車輛，一路進化成坦克！</li>
+      <li data-i18n="helpRampage"><b>擦邊、撞毀</b> 累積暴走值，滿了進入暴走模式！</li>
     </ul>
     <div class="btn-row">
       <button id="mode-levels" data-i18n="modeLevels">闖關模式</button>
       <button id="mode-endless" class="alt" data-i18n="modeEndless">無盡模式</button>
+      <button id="open-garage" class="alt" data-i18n="garage">車庫</button>
     </div>
+    <p id="title-coins"></p>
   </div>
 
   <div id="levels" class="screen hidden">
     <h2 data-i18n="modeLevels">闖關模式</h2>
     <div id="level-grid"></div>
     <button id="levels-back" class="alt" data-i18n="back">返回</button>
+  </div>
+
+  <div id="garage" class="screen hidden">
+    <h2 data-i18n="garageTitle">車庫：永久升級</h2>
+    <p id="garage-coins"></p>
+    <div id="garage-grid"></div>
+    <button id="garage-back" class="alt" data-i18n="back">返回</button>
   </div>
 
   <div id="upgrade" class="screen hidden">
@@ -89,6 +103,7 @@
     <div id="complete-stars"></div>
     <ul id="complete-goals"></ul>
     <p id="complete-stats"></p>
+    <p class="coin-line" id="complete-coins"></p>
     <div class="btn-row">
       <button id="complete-next" data-i18n="next">下一關</button>
       <button id="complete-retry" class="alt" data-i18n="retryLevel">再玩一次</button>
@@ -100,6 +115,7 @@
     <h2 id="over-reason"></h2>
     <p id="over-stats"></p>
     <p id="best"></p>
+    <p class="coin-line" id="over-coins"></p>
     <div class="btn-row">
       <button id="retry-btn" data-i18n="retry">再來一次</button>
       <button id="over-menu" class="alt" data-i18n="menu">主選單</button>

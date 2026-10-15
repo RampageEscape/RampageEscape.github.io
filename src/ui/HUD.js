@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { t, applyStatic, toggleLang, onLangChange } from '../i18n.js';
+import { GARAGE } from '../systems/Progression.js';
 
 const $ = (id) => document.getElementById(id);
 const v = new THREE.Vector3();
@@ -17,11 +18,16 @@ export class HUD {
       title: $('title'), levels: $('levels'), levelGrid: $('level-grid'), upgrade: $('upgrade'), upgradeCards: $('upgrade-cards'),
       complete: $('complete'), cStars: $('complete-stars'), cGoals: $('complete-goals'), cStats: $('complete-stats'), cNext: $('complete-next'),
       over: $('gameover'), reason: $('over-reason'), stats: $('over-stats'), best: $('best'),
+      coins: $('coins'), missions: $('missions'), fever: $('fever-fill'), rampageFx: $('rampage-fx'),
+      garage: $('garage'), garageGrid: $('garage-grid'), garageCoins: $('garage-coins'), titleCoins: $('title-coins'),
+      cCoins: $('complete-coins'), overCoins: $('over-coins'),
     };
     const on = (id, fn) => $(id).addEventListener('click', fn);
     on('mode-levels', () => this.onOpenLevels?.());
     on('mode-endless', () => this.onEndless?.());
     on('levels-back', () => this.showTitle());
+    on('open-garage', () => this.showGarage());
+    on('garage-back', () => this.showTitle());
     on('retry-btn', () => this.onRetry?.());
     on('over-menu', () => this.onMenu?.());
     on('complete-next', () => this.onNextLevel?.());
@@ -49,6 +55,9 @@ export class HUD {
       if (this.screen === 'levels') this.renderLevels();
       if (this.screen === 'upgrade') this.renderUpgrade();
       if (this.screen === 'complete') this.renderComplete();
+      if (this.screen === 'garage') this.renderGarage();
+      if (this.screen === 'title') this.showTitle();
+      if (this.missionList) this.showMissions(this.missionList);
       this.lastDistance = -1;
       this.jnKey = null;
     });
@@ -57,14 +66,61 @@ export class HUD {
   /** 只显示一个全屏界面（null = 都不显示，正在游戏） */
   setScreen(name) {
     this.screen = name;
-    for (const k of ['title', 'levels', 'upgrade', 'complete', 'over']) this.el[k].classList.toggle('hidden', k !== name);
+    for (const k of ['title', 'levels', 'upgrade', 'complete', 'over', 'garage']) this.el[k].classList.toggle('hidden', k !== name);
     this.el.hud.classList.toggle('hidden', !(name === null || name === 'upgrade'));
     // 语言按钮只在菜单类界面显示，游戏中隐藏避免误触
-    this.el.lang.classList.toggle('hidden', !['title', 'levels', 'complete', 'over'].includes(name));
+    this.el.lang.classList.toggle('hidden', !['title', 'levels', 'complete', 'over', 'garage'].includes(name));
+    if (name !== null) this.setRampage(false);
   }
 
   showTitle() {
     this.setScreen('title');
+    if (this.prog) this.el.titleCoins.textContent = t('garageCoins', { n: this.prog.coins.toLocaleString() });
+  }
+
+  // ---------------- 车库 ----------------
+  showGarage() {
+    this.setScreen('garage');
+    this.renderGarage();
+  }
+
+  renderGarage() {
+    const pr = this.prog;
+    this.el.garageCoins.textContent = t('garageCoins', { n: pr.coins.toLocaleString() });
+    const grid = this.el.garageGrid;
+    grid.innerHTML = '';
+    for (const id of Object.keys(GARAGE)) {
+      const lv = pr.level(id), max = pr.maxLevel(id), cost = pr.nextCost(id);
+      const card = document.createElement('div');
+      card.className = 'g-card';
+      card.innerHTML = `<span class="g-icon">${GARAGE[id].icon}</span><span class="g-name">${t('g_' + id)}</span>`
+        + `<span class="g-desc">${t('g_' + id + '_desc')}</span>`
+        + `<span class="g-dots">${'●'.repeat(lv)}${'○'.repeat(max - lv)}</span>`;
+      const b = document.createElement('button');
+      b.className = 'g-buy';
+      b.textContent = cost == null ? t('maxed') : t('buy', { c: cost });
+      b.disabled = cost == null || pr.coins < cost;
+      b.addEventListener('click', () => { if (pr.buy(id)) this.renderGarage(); });
+      card.appendChild(b);
+      grid.appendChild(card);
+    }
+  }
+
+  // ---------------- 任务 / 暴走 ----------------
+  missionText(m) {
+    return t('mission_' + m.id, { n: m.target.toLocaleString() });
+  }
+
+  showMissions(list) {
+    this.missionList = list;
+    this.el.missions.innerHTML = list.map((m) => {
+      const prog = m.id === 'distance' ? `${Math.floor(m.progress)}/${m.target}` : `${m.progress}/${m.target}`;
+      return `<li class="${m.done ? 'done' : ''}">${m.done ? '✔' : '▸'} ${this.missionText(m)} <b>${m.done ? '' : prog}</b></li>`;
+    }).join('');
+  }
+
+  setRampage(on) {
+    this.el.rampageFx.classList.toggle('hidden', !on);
   }
 
   /** 关卡选择：progress = { unlocked, stars: { [id]: n } } */
@@ -133,6 +189,7 @@ export class HUD {
     this.el.cGoals.innerHTML = d.goals.map((g) => `<li class="${g.done ? 'done' : ''}">${g.done ? '✔' : '✘'} ${t(g.key, g.vars)}</li>`).join('');
     this.el.cStats.innerHTML = t('completeStats', { score: d.score.toLocaleString(), kills: d.kills });
     this.el.cNext.classList.toggle('hidden', !d.hasNext);
+    this.el.cCoins.textContent = d.coins ? t('coinLine', { n: d.coins.run, t: d.coins.total }) : '';
   }
 
   showGameOver(reason, data) {
@@ -146,6 +203,8 @@ export class HUD {
     this.el.reason.textContent = t(reason === 'BUSTED' ? 'busted' : 'wrecked');
     this.el.stats.innerHTML = t('stats', { score: score.toLocaleString(), distance, kills });
     this.el.best.textContent = bestLabel ? t(bestLabel.key, bestLabel.vars) : t('best', { best: best.toLocaleString() });
+    const c = this.overData.coins;
+    this.el.overCoins.textContent = c ? t('coinLine', { n: c.run, t: c.total }) : '';
   }
 
   update(game, dt) {
@@ -169,6 +228,9 @@ export class HUD {
       }
     }
     el.hp.style.width = `${(p.hp / p.maxHp) * 100}%`;
+    el.fever.style.width = `${(p.rampage > 0 ? 1 : game.fever) * 100}%`;
+    el.fever.parentElement.classList.toggle('full', p.rampage > 0);
+    el.coins.textContent = `🪙 ${this.prog.runCoins}`;
     el.shields.textContent = '🛡️'.repeat(p.shields);
     el.bust.style.width = `${game.bust * 100}%`;
     el.bust.parentElement.classList.toggle('active', game.bust > 0.01);
@@ -257,10 +319,10 @@ export class HUD {
     f.style.opacity = 0;
   }
 
-  /** key 是语言表里的键（例如 'city' / 'forest'） */
-  banner(key) {
-    this.bannerKey = key;
-    this.el.banner.textContent = t(key);
+  /** key 是语言表里的键（例如 'city' / 'forest'），vars 是文字里的变量 */
+  banner(key, vars) {
+    this.bannerKey = vars ? null : key;
+    this.el.banner.textContent = t(key, vars);
     this.el.banner.classList.add('show');
     this.bannerTimer = 2.2;
   }

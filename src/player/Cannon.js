@@ -43,6 +43,9 @@ export class Cannon {
       const score = d * (c.z > p.z ? 1 : 1.6); // 前方的目标优先
       if (score < bestScore) { bestScore = score; best = c; }
     }
+    // 直升机在射程内就优先打它
+    const heli = sp.heli;
+    if (heli.collidable && pp.distanceTo(heli.mesh.position) < C.range + 15) return heli;
     return best;
   }
 
@@ -82,14 +85,18 @@ export class Cannon {
     p.muzzle.updateWorldMatrix(true, false);
     const from = p.muzzle.getWorldPosition(new THREE.Vector3());
     let w;
-    if (this.target) {
+    let air = 0.5;
+    if (this.target === g.spawner.heli) {
+      w = { x: this.target.mesh.position.x, z: this.target.mesh.position.z };
+      air = this.target.mesh.position.y;
+    } else if (this.target) {
       // 预判：按目标当前速度，算炮弹飞到时它会在哪
       const t = this.target, flight = from.distanceTo(t.mesh.position) / C.speed;
       w = Road.sample(t.z + (t.speed || 0) * flight, t.lateral, SAMPLE);
     } else {
       w = Road.sample(p.z + 35 + p.speed * 0.4, p.lateral, SAMPLE); // 没目标就往正前方打
     }
-    const to = new THREE.Vector3(w.x, 0.5, w.z);
+    const to = new THREE.Vector3(w.x, air, w.z);
     const mesh = new THREE.Mesh(this.geo, this.mat);
     mesh.position.copy(from);
     g.scene.add(mesh);
@@ -110,5 +117,7 @@ export class Cannon {
     for (const t of g.spawner.tanks) if (near(t, 2.5)) t.destroy(g, p);
     for (const c of g.spawner.traffic) if (near(c)) c.knock(p, g, 0.8);
     for (const o of g.spawner.obstacles) if (near(o)) o.knock(p, g, 1);
+    const heli = g.spawner.heli;
+    if (heli.collidable && heli.mesh.position.distanceTo(pos) < R + 3) heli.damage(g);
   }
 }

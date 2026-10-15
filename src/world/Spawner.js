@@ -5,6 +5,7 @@ import { PoliceAI } from '../ai/PoliceAI.js';
 import { Civilian, Obstacle } from '../ai/Traffic.js';
 import { TankAI, Shells } from '../ai/TankAI.js';
 import { RoadWarnings } from '../fx/RoadWarnings.js';
+import { Helicopter } from '../ai/Helicopter.js';
 import { rand, randInt } from '../core/utils.js';
 
 const S = CONFIG.spawn, LANES = CONFIG.road.lanes;
@@ -35,6 +36,7 @@ export class Spawner {
     this.entities = [];
     this.shells = new Shells(game);
     this.warnings = new RoadWarnings(game.scene);
+    this.heli = new Helicopter(game);
     this.barricades = []; // { z, blocked: [车道编号], signs: [地面预警] }
     this.reset();
   }
@@ -47,6 +49,8 @@ export class Spawner {
       list.length = 0;
     }
     this.shells.reset();
+    this.heli.reset();
+    this.nextHeliZ = 900;
     for (const b of this.barricades) this.clearBarricade(b);
     this.barricades = [];
     this.nextBarricadeZ = 320;
@@ -76,6 +80,7 @@ export class Spawner {
     const ctx = { player: p, fx: g.fx, game: g, hazards: this.entities, shells: this.shells };
     for (const e of this.entities) e.update(dt, ctx);
     this.shells.update(dt);
+    this.heli.update(dt);
     this.warnings.update(dt);
     this.cull(p);
   }
@@ -101,6 +106,12 @@ export class Spawner {
       const B = CONFIG.barricade;
       this.nextBarricadeZ += rand(B.minGap, B.maxGap) * (1.1 - stars * 0.08);
     }
+    // 直升机 Boss：3 星以后每隔一段距离来一次
+    if (stars >= 3 && !this.heli.active && p.z > this.nextHeliZ && limit - p.z > 200) {
+      this.heli.enter();
+      this.nextHeliZ = p.z + rand(1400, 2000);
+    }
+
     const tz = p.z + 170;
     if (stars >= 3 && !this.tanks.length && tz > this.nextTankZ && tz < limit - 40 && BIOMES[Road.biomeAt(tz)].tanks) {
       this.spawnTank(tz);

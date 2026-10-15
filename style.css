@@ -187,3 +187,28 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .pg-fill { height: 100%; width: 0; background: linear-gradient(90deg, #ffcf33, #ff7a1a); transition: width .2s; }
 .pg-text { font: 12px system-ui, "PingFang TC", sans-serif; font-weight: 700; text-shadow: 0 1px 0 #000; white-space: nowrap; }
 #shields { font-size: 14px; min-height: 16px; letter-spacing: 1px; }
+
+/* ---------- 金币 / 任务 / 暴走 / 车库 ---------- */
+#coins { font-size: 15px; color: #ffd84a; text-shadow: 0 1px 0 #000; margin-top: 2px; }
+#missions { list-style: none; margin: 6px 0 0; padding: 0; font: 11px/1.55 system-ui, "PingFang TC", sans-serif; font-weight: 700; text-shadow: 0 1px 2px #000; max-width: 46vw; }
+#missions li { opacity: .9; }
+#missions li b { color: #ffd84a; }
+#missions li.done { color: #8dff9b; opacity: .7; }
+.bar.fever { height: 7px; }
+.fever > div { width: 0; background: linear-gradient(90deg, #ff4fd8, #ff9a3c); transition: width .15s; }
+.bar.fever.full { box-shadow: 0 0 12px #ff4fd8; animation: rbPulse .25s infinite alternate; }
+#rampage-fx {
+  position: fixed; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 90px 20px rgba(255, 60, 200, .55);
+  animation: rbPulse .3s ease-in-out infinite alternate;
+}
+#title-coins, #garage-coins { font-size: 20px; color: #ffd84a; margin: 14px 0 0; text-shadow: 0 2px 0 #000; }
+#garage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; width: min(820px, 100%); margin: 12px 0 20px; max-height: 62vh; overflow-y: auto; padding: 4px; }
+.g-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 10px; border-radius: 16px; background: linear-gradient(180deg, #2b3445, #1a202b); box-shadow: 0 0 0 2px rgba(255,255,255,.12) inset; }
+.g-icon { font-size: 34px; }
+.g-name { font-size: 16px; }
+.g-desc { font: 13px system-ui, "PingFang TC", sans-serif; opacity: .85; }
+.g-dots { color: #ffd84a; letter-spacing: 3px; }
+.screen button.g-buy { font-size: 14px; padding: 8px 14px; }
+.screen button.g-buy:disabled { background: #3a3f48; box-shadow: 0 3px 0 #1d2026; color: #8a9099; }
+.coin-line { color: #ffd84a; font-family: system-ui, sans-serif; margin: 0 0 16px; }
