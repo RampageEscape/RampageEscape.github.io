@@ -20,6 +20,7 @@ import { TIERS } from './player/Vehicles.js';
 import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
 import { loadModels } from './models/ModelLibrary.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SAMPLE = {};
@@ -36,6 +37,10 @@ class Game {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(BIOMES.city.sky);
     this.scene.fog = new THREE.Fog(this.scene.background, 70, 170);
+    // 环境反射：让 3D 车模的车漆有光泽（只影响车辆模型的 PBR 材质，地图的低多边形材质不受影响）
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
 
     // 等距视角：正交相机 + 固定斜俯角
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);

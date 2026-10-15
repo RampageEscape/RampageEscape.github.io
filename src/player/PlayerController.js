@@ -3,6 +3,7 @@ import { CONFIG } from '../config.js';
 import { Road, ROAD_HALF, laneOffset, nearestLane } from '../world/Road.js';
 import { clamp, damp } from '../core/utils.js';
 import { TIERS } from './Vehicles.js';
+import { spinWheels } from '../models/ModelLibrary.js';
 
 const P = CONFIG.player;
 const SAMPLE = {};
@@ -243,6 +244,8 @@ export class PlayerController {
   syncMesh(dt) {
     const m = this.mesh;
     const w = Road.sample(this.z, this.lateral, SAMPLE);
+    spinWheels(m, this.y > 0 ? this.speed * dt * 1.5 : this.z - (this.wheelZ ?? this.z)); // 空中车轮空转
+    this.wheelZ = this.z;
     m.position.set(w.x, this.y, w.z);
     // 车头朝向 = 道路切线方向 + 变道时的转向角
     m.rotation.y = w.h + Math.atan2(this.latVel, Math.max(this.speed, 5)) * 0.9;

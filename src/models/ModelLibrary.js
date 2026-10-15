@@ -25,6 +25,7 @@ export async function loadModels(onProgress) {
         // 稍微提高光泽，配合环境反射让车漆有金属感
         o.material.roughness = 0.38;
         o.material.metalness = 0.25;
+        o.material.envMapIntensity = 0.8;
       });
       cache.set(name, gltf.scene);
     })
@@ -65,8 +66,16 @@ export function kitVehicle(name, { length = 4.4, tint } = {}) {
   const wheels = [];
   model.traverse((o) => { if (o.name.startsWith('wheel')) wheels.push(o); });
   const H = size.y * s, W = size.x * s;
-  g.userData = { root, wheels, kit: true, topY: H, dims: { L: length, W, H, bodyH: H * 0.45, clearance: 0.3, cabinZ: -0.05 } };
+  g.userData = { root, wheels, wheelR: 0.3 * s, kit: true, topY: H, dims: { L: length, W, H, bodyH: H * 0.45, clearance: 0.3, cabinZ: -0.05 } };
   return g;
+}
+
+/** 按行驶距离转动车轮（车轮节点绕父节点的 X 轴转，左右轮都对） */
+export function spinWheels(mesh, dist) {
+  const u = mesh.userData;
+  if (!u.wheels?.length || !dist) return;
+  const a = dist / u.wheelR;
+  for (const w of u.wheels) w.rotation.x += a;
 }
 
 /** 爆炸碎片：真实的车门、轮胎、保险杠、尾翼（克隆后缩放） */

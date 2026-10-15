@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { ObjectPool } from './ObjectPool.js';
 import { Road } from '../world/Road.js';
-import { rand } from '../core/utils.js';
+import { rand, pick } from '../core/utils.js';
+import { kitPart, DEBRIS } from '../models/ModelLibrary.js';
 
 const FIRE = [0xfff6c8, 0xffc04a, 0xff7a1c, 0xd4380f, 0x4a3328].map((c) => new THREE.Color(c));
 const SMOKE_A = new THREE.Color(0x3b3532), SMOKE_B = new THREE.Color(0x9a948e);
@@ -32,6 +33,7 @@ export class Effects {
     const disc = new THREE.CircleGeometry(1, 32).rotateX(-Math.PI / 2);
     this.decalPools = { ring: new ObjectPool(() => this.makeDecal(ring), 12), disc: new ObjectPool(() => this.makeDecal(disc), 6) };
     this.particles = [];
+    this.parts = []; // 真实的车辆碎片（车门、轮胎、保险杠……）
     this.jets = [];
     this.decals = [];
   }
@@ -103,6 +105,45 @@ export class Effects {
     for (let i = 0; i < 10 * power; i++) this.emit('smoke', c, randDir(v2, 1).multiplyScalar(rand(1, 4)).add(v3.set(kx * 0.3, 0, kz * 0.3)), rand(1.2, 2.2), rand(1.4, 2.6) * sp);
     for (let i = 0; i < 14 * power; i++) this.emit('debris', c, randDir(v2, 0.8).multiplyScalar(rand(8, 18)).add(v3.set(kx * 0.7, 0, kz * 0.7)), rand(1.4, 2.2), rand(0.3, 0.75));
     for (let i = 0; i < 18; i++) this.emit('spark', c, randDir(v2).multiplyScalar(rand(10, 24)), rand(0.25, 0.55), 0.14, SPARK);
+    this.spawnParts(c, Math.round(2 + power * 2), kx, kz);
+  }
+
+  /** 炸飞几块真实的车辆零件，带重力、旋转和落地弹跳 */
+  spawnParts(pos, n, kx = 0, kz = 0) {
+    for (let i = 0; i < n; i++) {
+      const m = kitPart(pick(DEBRIS), rand(1.2, 1.8));
+      if (!m) return;
+      if (this.parts.length >= 30) this.scene.remove(this.parts.shift().m); // 同屏碎片上限
+      m.position.copy(pos);
+      m.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
+      m.traverse((o) => { o.castShadow = true; });
+      this.scene.add(m);
+      const vel = randDir(new THREE.Vector3(), 0.9).multiplyScalar(rand(8, 16));
+      vel.x += kx * 0.6;
+      vel.z += kz * 0.6;
+      this.parts.push({ m, vel, spin: new THREE.Vector3(rand(-10, 10), rand(-10, 10), rand(-10, 10)), life: rand(2, 3), size: m.scale.x });
+    }
+  }
+
+  updateParts(dt) {
+    for (let i = this.parts.length - 1; i >= 0; i--) {
+      const p = this.parts[i], m = p.m;
+      p.life -= dt;
+      p.vel.y -= 30 * dt;
+      m.position.addScaledVector(p.vel, dt);
+      if (m.position.y < 0.15) {
+        m.position.y = 0.15;
+        if (p.vel.y < -3) p.vel.y *= -0.35; else p.vel.y = 0;
+        p.vel.x *= Math.exp(-4 * dt);
+        p.vel.z *= Math.exp(-4 * dt);
+        p.spin.multiplyScalar(Math.exp(-5 * dt));
+      }
+      m.rotation.x += p.spin.x * dt;
+      m.rotation.y += p.spin.y * dt;
+      m.rotation.z += p.spin.z * dt;
+      if (p.life < 0.4) m.scale.setScalar(p.size * Math.max(0, p.life / 0.4));
+      if (p.life <= 0) { this.scene.remove(m); this.parts.splice(i, 1); }
+    }
   }
 
   /** 普通碰撞：火花 + 少量烟 */
@@ -146,6 +187,7 @@ export class Effects {
   // ---------------------------------------------------------------- 每帧更新
   update(dt) {
     this.updateJets(dt);
+    this.updateParts(dt);
     this.updateParticles(dt);
     this.updateDecals(dt);
   }

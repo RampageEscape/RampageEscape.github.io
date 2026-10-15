@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Road } from '../world/Road.js';
 import { rand } from '../core/utils.js';
+import { spinWheels } from '../models/ModelLibrary.js';
 
 const GRAVITY = 38;
 const SAMPLE = {};
@@ -33,6 +34,7 @@ export class Vehicle {
     this.state = 'drive';
     this.removeMe = false;
     this.burning = false;
+    this.wheelZ = z;
     this.mesh.rotation.set(0, 0, 0);
     this.root?.rotation.set(0, 0, 0);
     this.mesh.visible = true;
@@ -51,6 +53,8 @@ export class Vehicle {
 
   sync() {
     const w = Road.sample(this.z, this.lateral, SAMPLE);
+    spinWheels(this.mesh, this.z - (this.wheelZ ?? this.z));
+    this.wheelZ = this.z;
     this.mesh.position.set(w.x, 0, w.z);
     this.mesh.rotation.y = w.h + this.yawOffset;
   }
