@@ -7,6 +7,8 @@ import { rand } from '../core/utils.js';
 const L = CONFIG.world.chunkLength;
 const J = CONFIG.junction;
 const QUARTER = Math.PI / 2, EIGHTH = Math.PI / 4;
+const LANES = CONFIG.road.lanes;
+const ORDER = ['left', 'forkLeft', 'straight', 'forkRight', 'right'];
 
 // 每种出口：转弯角度（左正右负）+ 对应的滑动方向
 const EXITS = {
@@ -113,19 +115,39 @@ export class LevelManager {
   }
 
   /**
-   * 决策区内的滑动：选择出口（返回 true 表示已处理，不再当作变道/加速）。
-   * 这一侧没有出口时返回 false，照常变道。
+   * 按车道选出口：出口按屏幕从左到右排列，玩家所在车道决定走哪个出口。
+   *   3 个出口：最左车道 → 左转，中间两条 → 直走，最右车道 → 右转
+   *   2 个出口：左边两条 → 左边出口，右边两条 → 右边出口
+   * 车道编号越大越靠左（镜头在车后方，+lat 是左侧）。
    */
-  handleSwipe(dir, s) {
-    if (!this.inDecisionZone(s)) return false;
-    const idx = this.junction.options.findIndex((o) => EXITS[o.key].swipe === dir);
-    if (idx < 0) return false;
-    this.junction.selected = idx;
-    return true;
+  optionForLane(lane) {
+    const j = this.junction, opts = this.screenOrder();
+    const fromLeft = LANES - 1 - lane;
+    if (opts.length === 3) return opts[fromLeft === 0 ? 0 : fromLeft === LANES - 1 ? 2 : 1];
+    return opts[fromLeft < LANES / 2 ? 0 : 1];
   }
 
-  select(idx) {
-    if (this.junction && !this.junction.committed && this.junction.options[idx]) this.junction.selected = idx;
+  /** 当前路口的出口下标，按屏幕从左到右排序 */
+  screenOrder() {
+    const j = this.junction;
+    return j.options.map((o, i) => i).sort((a, b) => ORDER.indexOf(j.options[a].key) - ORDER.indexOf(j.options[b].key));
+  }
+
+  /** 每帧调用：决策区内按玩家车道自动选出口（玩家点过面板按钮就以按钮为准，直到再换车道） */
+  followLane(lane, s) {
+    if (!this.inDecisionZone(s)) return;
+    const j = this.junction;
+    if (j.manual && j.manualLane === lane) return;
+    j.manual = false;
+    j.selected = this.optionForLane(lane);
+  }
+
+  select(idx, lane) {
+    const j = this.junction;
+    if (!j || j.committed || !j.options[idx]) return;
+    j.selected = idx;
+    j.manual = true;
+    j.manualLane = lane;
   }
 
   update(playerS) {

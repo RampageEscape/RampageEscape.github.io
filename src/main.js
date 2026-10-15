@@ -92,7 +92,7 @@ class Game {
     const hud = this.hud;
     hud.onDash = () => this.tryDash();
     hud.onFire = () => this.fire();
-    hud.onSelectRoute = (idx) => this.levels.select(idx);
+    hud.onSelectRoute = (idx) => this.levels.select(idx, this.player.lane);
     hud.onOpenLevels = () => hud.showLevels(LEVELS, this.progress);
     hud.onEndless = () => this.startRun({ mode: 'endless' });
     hud.onPickLevel = (level) => this.startRun({ mode: 'level', level });
@@ -251,7 +251,7 @@ class Game {
   /** 路口决策区内，左右/上滑是选岔路；其他时候照常变道/加减速 */
   handleSwipe(dir) {
     if (this.state !== 'playing') return;
-    if (!this.levels.handleSwipe(dir, this.player.z)) this.player.handleSwipe(dir);
+    this.player.handleSwipe(dir); // 滑动永远是变道/加减速；选路看车道
   }
 
   tryDash() {
@@ -354,7 +354,8 @@ class Game {
     this.score += p.speed * dt * CONFIG.score.perMeter * (p.isDashing ? 2 : 1);
     if (this.comboTimer > 0 && (this.comboTimer -= dt) <= 0) this.combo = 0;
 
-    // 路口：决策区内显示岔路选择
+    // 路口：决策区内按车道选出口，并显示岔路面板
+    this.levels.followLane(p.lane, p.z);
     this.hud.showJunction(this.levels.junction, p.z);
 
     // 路障预警：前方 warnDistance 米内有路障就显示 UI 车道示意

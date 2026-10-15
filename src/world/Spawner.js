@@ -213,7 +213,9 @@ export class Spawner {
     let changed = false;
     for (const list of this.lists) {
       for (let i = list.length - 1; i >= 0; i--) {
-        const e = list[i], z = e.state === 'wreck' ? e.mesh.position.z : e.z;
+        // 一律用道路里程 e.z 判断（残骸飞行时 e.z 保持在被撞的位置）。
+        // 不能用 mesh.position.z：路线转弯后世界 z 和里程不一样，会把刚撞飞的车立刻删掉
+        const e = list[i], z = e.z;
         if (e.removeMe || z < p.z - 60 || z > p.z + 320) {
           this.recycle(e);
           list.splice(i, 1);

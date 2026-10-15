@@ -50,6 +50,29 @@ function pickupMaterial(kind) {
   return pickupTex[kind];
 }
 
+// 路面箭头：每条车道通往哪个出口（白色箭头，按出口方向旋转）
+const ARROW_ANGLE = { left: -90, forkLeft: -45, straight: 0, forkRight: 45, right: 90 };
+const arrowMats = {};
+function arrowMaterial(key) {
+  if (!arrowMats[key]) {
+    arrowMats[key] = new THREE.MeshBasicMaterial({
+      map: canvasTexture(128, 128, (g) => {
+        g.translate(64, 64);
+        g.rotate((ARROW_ANGLE[key] * Math.PI) / 180);
+        g.fillStyle = 'rgba(255,255,255,0.92)';
+        g.beginPath();
+        g.moveTo(0, -56); g.lineTo(34, -14); g.lineTo(12, -14); g.lineTo(12, 52);
+        g.lineTo(-12, 52); g.lineTo(-12, -14); g.lineTo(-34, -14);
+        g.closePath();
+        g.fill();
+      }),
+      transparent: true,
+      depthWrite: false,
+    });
+  }
+  return arrowMats[key];
+}
+
 // 跳台：楔形（前低后高），沿局部 +Z 方向上坡
 function rampGeometry(w = 3.2, len = 5, h = 1.3) {
   const x = w / 2;
@@ -85,16 +108,19 @@ export class RoadFeatures {
     this.stations = [];
     this.pickups = [];
     this.ramps = [];
+    this.arrows = [];
+    this.arrowGeo = new THREE.PlaneGeometry(2.6, 2.6).rotateX(-Math.PI / 2);
     this.finish = null;
     onLangChange(() => { this.bannerTex = null; });
     this.reset();
   }
 
   reset() {
-    for (const list of [this.stations, this.pickups, this.ramps]) {
+    for (const list of [this.stations, this.pickups, this.ramps, this.arrows]) {
       for (const o of list) this.scene.remove(o.obj);
       list.length = 0;
     }
+    this.arrowJunction = null;
     if (this.finish) this.scene.remove(this.finish.obj);
     this.finish = null;
     this.finishS = Infinity;
@@ -210,6 +236,23 @@ export class RoadFeatures {
       }
     }
 
+    // 路口前的车道箭头：路口进入视野前画好
+    const j = g.levels.junction;
+    if (j && !j.committed && j.id !== this.arrowJunction && j.sEntry - p.z < 300) {
+      this.arrowJunction = j.id;
+      for (let lane = 0; lane < LANES; lane++) {
+        const key = j.options[g.levels.optionForLane(lane)].key;
+        for (const d of [40, 85]) {
+          const m = new THREE.Mesh(this.arrowGeo, arrowMaterial(key));
+          const w = Road.sample(j.sEntry - d, laneOffset(lane));
+          m.position.set(w.x, 0.065, w.z);
+          m.rotation.y = w.h + Math.PI;
+          this.scene.add(m);
+          this.arrows.push({ s: j.sEntry - d, obj: m });
+        }
+      }
+    }
+
     // 改装站：开过大门就打开升级界面
     for (const st of this.stations) {
       if (!st.used && g.state === 'playing' && p.z >= st.s) {
@@ -237,7 +280,7 @@ export class RoadFeatures {
 
     // 清理身后的
     const behind = (o) => o.s < p.z - 60;
-    for (const list of [this.stations, this.pickups, this.ramps]) {
+    for (const list of [this.stations, this.pickups, this.ramps, this.arrows]) {
       for (let i = list.length - 1; i >= 0; i--) {
         if (behind(list[i])) { this.scene.remove(list[i].obj); list.splice(i, 1); }
       }
