@@ -21,6 +21,7 @@ import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
 import { loadModels } from './models/ModelLibrary.js';
 import { Progression } from './systems/Progression.js';
+import { DIFFICULTIES, RUN, setDifficulty } from './data/difficulty.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -109,6 +110,7 @@ class Game {
     });
     addEventListener('keydown', (e) => {
       if (e.code === 'KeyF' || e.code === 'KeyJ') this.fire();
+      if (e.code === 'Escape' || e.code === 'KeyP') this.state === 'paused' ? this.resume() : this.pause();
     });
     const hud = this.hud;
     hud.onDash = () => this.tryDash();
@@ -127,6 +129,14 @@ class Game {
     this.best = Number(this.load('best') || 0);
     this.prog = new Progression();
     this.hud.prog = this.prog;
+    setDifficulty(this.load('difficulty') || 'normal');
+    hud.onDifficulty = (id) => { setDifficulty(id); this.save('difficulty', id); hud.showTitle(); };
+    hud.difficulty = () => RUN.id;
+    hud.onPause = () => this.pause();
+    hud.onResume = () => this.resume();
+    hud.onRestart = () => this.startRun(this.runOpts);
+    // 切出网页 / 锁屏时自动暂停
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.pause(); });
     this.bestDist = Number(this.load('bestDist') || 0);
     try { this.progress = JSON.parse(this.load('progress')) || null; } catch { this.progress = null; }
     this.progress ??= { unlocked: 1, stars: {} };
@@ -168,8 +178,10 @@ class Game {
 
   /** 开始一局：{ mode: 'endless' } 或 { mode: 'level', level } */
   startRun(opts) {
+    setDifficulty(RUN.id);
     this.resetRun(opts);
     this.prog.startRun();
+    this.prog.rewardMul = RUN.diff.reward;
     this.prog.applyGarage(this.player);
     this.hud.showMissions(this.prog.missions);
     this.state = 'playing';
@@ -185,8 +197,22 @@ class Game {
     this.hud.showTitle();
   }
 
+  // ---------------- 暂停 ----------------
+  pause() {
+    if (this.state !== 'playing') return;
+    this.state = 'paused';
+    this.hud.showPause();
+  }
+
+  resume() {
+    if (this.state !== 'paused') return;
+    this.state = 'playing';
+    this.hud.showPlaying(true);
+    this.last = performance.now();
+  }
+
   get stars() {
-    const s = CONFIG.spawn, base = this.level?.startStars ?? 1;
+    const s = CONFIG.spawn, base = (this.level?.startStars ?? 1) + RUN.diff.stars;
     return clamp(base + Math.floor(this.distance / s.starDistance) + Math.floor(this.kills / 10), 1, s.maxStars);
   }
 
@@ -252,7 +278,7 @@ class Game {
 
   /** 贴着车擦过去（没撞到）：加分、加暴走值、冲刺冷却缩短 */
   onNearMiss(e) {
-    const p = this.player, pts = 150;
+    const p = this.player, pts = Math.round(150 * RUN.diff.reward);
     this.score += pts;
     this.prog.earn(2);
     p.dashCooldown = Math.max(0, p.dashCooldown - 0.6);
@@ -385,7 +411,7 @@ class Game {
     if (this.player.isDashing) this.missionEvent('dashCombo', ++this.dashKills, 'max');
     this.combo++;
     this.comboTimer = CONFIG.score.comboWindow;
-    const pts = Math.round((CONFIG.score[enemy.type] ?? 300) * Math.min(this.combo, 8));
+    const pts = Math.round((CONFIG.score[enemy.type] ?? 300) * Math.min(this.combo, 8) * RUN.diff.reward);
     this.score += pts;
     this.hud.popup(reason === 'crash' ? t('lured', { pts }) : `+${pts}`, enemy.mesh.position, this.camera, this.combo > 2);
     this.player.extendDash();
@@ -466,8 +492,8 @@ class Game {
   }
 
   update(realDt) {
-    // 改装站界面打开时整个世界暂停，只保留镜头和界面
-    if (this.state === 'upgrade') {
+    // 改装站界面 / 暂停时整个世界停住，只保留镜头和界面
+    if (this.state === 'upgrade' || this.state === 'paused') {
       this.updateCamera(realDt);
       this.hud.update(this, realDt);
       return;
@@ -496,7 +522,7 @@ class Game {
     const p = this.player;
     resolveCollisions(this);
     this.distance = Math.max(this.distance, p.z);
-    this.score += p.speed * dt * CONFIG.score.perMeter * (p.isDashing ? 2 : 1);
+    this.score += p.speed * dt * CONFIG.score.perMeter * (p.isDashing ? 2 : 1) * RUN.diff.reward;
     if (this.comboTimer > 0 && (this.comboTimer -= dt) <= 0) this.combo = 0;
 
     // 路口：决策区内按车道选出口，并显示岔路面板
@@ -508,8 +534,9 @@ class Game {
     this.hud.showRoadblock(rb ? rb.blocked : null);
 
     // 被捕判定：被 2 辆以上警车贴身包夹时，被捕条持续上涨（冲刺、飞在空中、开坦克时不会被捕）
-    const boxed = !p.isDashing && !p.airborne && !p.tier.cannon && this.spawner.copsNear(p, 5.5, 5.5) >= 2;
-    this.bust = clamp(this.bust + (boxed ? 0.55 : -0.7) * dt, 0, 1);
+    // 坦克也会被包夹到被捕（否则开上坦克就无敌了）；冲刺、暴走、在空中时不会
+    const boxed = !p.isDashing && !p.airborne && p.rampage <= 0 && this.spawner.copsNear(p, 5.5, 5.5) >= 2;
+    this.bust = clamp(this.bust + (boxed ? 0.55 * RUN.diff.bust : -0.7) * dt, 0, 1);
 
     this.checkNearMiss();
     // 每跑 100 米 1 枚金币；距离任务

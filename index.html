@@ -49,6 +49,7 @@
       <div class="jn-title"></div>
       <div class="jn-options"></div>
     </div>
+    <button id="pause-btn" aria-label="pause">❚❚</button>
     <div id="combo"></div>
     <button id="fire-btn" class="hidden" data-i18n-aria="fire"><span data-i18n="fire">開炮</span></button>
     <button id="dash-btn" data-i18n-aria="dashAria"><span data-i18n="dash">衝刺</span></button>
@@ -72,6 +73,7 @@
       <li data-i18n="helpStation"><b>改裝站</b> 升級車輛，一路進化成坦克！</li>
       <li data-i18n="helpRampage"><b>擦邊、撞毀</b> 累積暴走值，滿了進入暴走模式！</li>
     </ul>
+    <div id="difficulty-row"></div>
     <div class="btn-row">
       <button id="mode-levels" data-i18n="modeLevels">闖關模式</button>
       <button id="mode-endless" class="alt" data-i18n="modeEndless">無盡模式</button>
@@ -91,6 +93,18 @@
     <p id="garage-coins"></p>
     <div id="garage-grid"></div>
     <button id="garage-back" class="alt" data-i18n="back">返回</button>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <h2 data-i18n="paused">暫停</h2>
+    <div class="pause-list">
+      <button id="pause-resume" data-i18n="resume">繼續遊戲</button>
+      <button id="pause-restart" class="alt" data-i18n="restart">重新開始</button>
+      <button id="pause-music" class="alt"></button>
+      <button id="pause-sfx" class="alt"></button>
+      <button id="pause-camera" class="alt"></button>
+      <button id="pause-menu" class="alt" data-i18n="menu">主選單</button>
+    </div>
   </div>
 
   <div id="upgrade" class="screen hidden">

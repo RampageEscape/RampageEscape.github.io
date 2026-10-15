@@ -212,3 +212,23 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .screen button.g-buy { font-size: 14px; padding: 8px 14px; }
 .screen button.g-buy:disabled { background: #3a3f48; box-shadow: 0 3px 0 #1d2026; color: #8a9099; }
 .coin-line { color: #ffd84a; font-family: system-ui, sans-serif; margin: 0 0 16px; }
+
+/* ---------- 暂停 / 难度 ---------- */
+#pause-btn {
+  position: absolute; top: calc(env(safe-area-inset-top) + 10px); left: 50%; transform: translateX(-50%);
+  width: 40px; height: 40px; border-radius: 50%; border: 2px solid rgba(255,255,255,.7); background: rgba(0,0,0,.4);
+  color: #fff; font-size: 13px; letter-spacing: -2px; pointer-events: auto; cursor: pointer; z-index: 2;
+}
+#progress { margin-top: 48px; }
+#pause { background: rgba(8, 10, 18, .72); }
+.pause-list { display: flex; flex-direction: column; gap: 12px; width: min(320px, 90%); }
+.pause-list button { width: 100%; }
+#difficulty-row { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 18px; }
+.diff-label { font-size: 14px; opacity: .8; }
+.diff-chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.screen button.diff-chip { font-size: 15px; padding: 8px 16px; border-radius: 20px; background: rgba(255,255,255,.12); box-shadow: none; border: 2px solid rgba(255,255,255,.25); }
+.screen button.diff-chip.on.easy { background: #2ecc71; border-color: #fff; }
+.screen button.diff-chip.on.normal { background: #2f8cff; border-color: #fff; }
+.screen button.diff-chip.on.hard { background: #ff8a1f; border-color: #fff; }
+.screen button.diff-chip.on.insane { background: #e8213a; border-color: #fff; box-shadow: 0 0 16px rgba(255,40,60,.7); }
+.diff-hint { font: 13px system-ui, "PingFang TC", sans-serif; opacity: .85; }

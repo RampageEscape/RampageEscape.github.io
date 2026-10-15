@@ -5,6 +5,7 @@ import { clamp, damp } from '../core/utils.js';
 import { TIERS } from './Vehicles.js';
 import { spinWheels } from '../models/ModelLibrary.js';
 import { GLOW_TEX } from '../fx/Particles.js';
+import { RUN } from '../data/difficulty.js';
 
 const P = CONFIG.player;
 const SAMPLE = {};
@@ -162,7 +163,13 @@ export class PlayerController {
   /** 重型车辆撞爆东西的代价：掉一点速度和一点点血 */
   ramImpact(damage = 3) {
     this.speed *= 0.92;
-    if (!this.isDashing) this.hp = Math.max(1, this.hp - damage);
+    if (this.isDashing || this.rampage > 0) return;
+    // 高难度下重型车辆撞车很伤：坦克也不是无敌的，掉到 0 血会直接报废
+    this.hp = Math.max(0, this.hp - damage * RUN.diff.ramCost);
+    if (this.hp <= 0) {
+      this.alive = false;
+      this.events.onHit?.(this, damage);
+    }
   }
 
   /** 被撞：返回 true 表示真的受到了伤害（冲刺/无敌帧/护盾时免疫） */
@@ -175,6 +182,7 @@ export class PlayerController {
       this.events.onShieldBreak?.(this);
       return false;
     }
+    damage *= RUN.diff.dmg;
     this.hp = Math.max(0, this.hp - damage);
     this.invuln = P.hitInvuln;
     this.speed *= speedMul;

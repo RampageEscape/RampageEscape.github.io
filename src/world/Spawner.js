@@ -6,6 +6,7 @@ import { Civilian, Obstacle } from '../ai/Traffic.js';
 import { TankAI, Shells } from '../ai/TankAI.js';
 import { RoadWarnings } from '../fx/RoadWarnings.js';
 import { Helicopter } from '../ai/Helicopter.js';
+import { RUN } from '../data/difficulty.js';
 import { rand, randInt } from '../core/utils.js';
 
 const S = CONFIG.spawn, LANES = CONFIG.road.lanes;
@@ -50,7 +51,7 @@ export class Spawner {
     }
     this.shells.reset();
     this.heli.reset();
-    this.nextHeliZ = 900;
+    this.nextHeliZ = 900 * RUN.diff.heliGap;
     for (const b of this.barricades) this.clearBarricade(b);
     this.barricades = [];
     this.nextBarricadeZ = 320;
@@ -86,11 +87,12 @@ export class Spawner {
   }
 
   spawnLogic(dt, p, stars) {
-    const want = Math.min(S.policeMax, S.policeBase + stars * S.policePerStar);
+    const D = RUN.diff;
+    const want = Math.min(D.policeMax, Math.round((S.policeBase + stars * S.policePerStar) * D.policeMul));
     const chasing = this.police.filter((c) => c.mode === 'chase' && c.collidable).length;
     if ((this.policeTimer -= dt) <= 0 && chasing < want) {
       this.spawnChaser(p, stars);
-      this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2);
+      this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2) / D.policeMul;
     }
     // 路口还没选定时，路口后面的路线还不存在：所有前方刷新都限制在路口之前
     const j = this.game.levels.junction;
@@ -100,20 +102,20 @@ export class Spawner {
     }
     this.spawnLimit = limit;
     if (this.game.features?.isNear(this.game.features.stations, this.nextBarricadeZ, 90)) this.nextBarricadeZ += 150; // 不和改装站挤在一起
-    if (this.traffic.length < S.trafficCount) this.spawnCivilian(p.z + rand(130, 200));
+    if (this.traffic.length < S.trafficCount * D.traffic) this.spawnCivilian(p.z + rand(130, 200));
     if (p.z + 170 > this.nextBarricadeZ && this.nextBarricadeZ < limit) {
       this.spawnBarricade(this.nextBarricadeZ, stars);
       const B = CONFIG.barricade;
-      this.nextBarricadeZ += rand(B.minGap, B.maxGap) * (1.1 - stars * 0.08);
+      this.nextBarricadeZ += rand(B.minGap, B.maxGap) * (1.1 - stars * 0.08) * D.barricade;
     }
     // 直升机 Boss：3 星以后每隔一段距离来一次
-    if (stars >= 3 && !this.heli.active && p.z > this.nextHeliZ && limit - p.z > 200) {
+    if (stars >= D.heliFrom && !this.heli.active && p.z > this.nextHeliZ && limit - p.z > 200) {
       this.heli.enter();
-      this.nextHeliZ = p.z + rand(1400, 2000);
+      this.nextHeliZ = p.z + rand(1400, 2000) * D.heliGap;
     }
 
     const tz = p.z + 170;
-    if (stars >= 3 && !this.tanks.length && tz > this.nextTankZ && tz < limit - 40 && BIOMES[Road.biomeAt(tz)].tanks) {
+    if (stars >= D.tankFrom && !this.tanks.length && tz > this.nextTankZ && tz < limit - 40 && BIOMES[Road.biomeAt(tz)].tanks) {
       this.spawnTank(tz);
       this.nextTankZ = tz + rand(500, 800);
     }
@@ -154,7 +156,7 @@ export class Spawner {
   spawnBarricade(z, stars) {
     const B = CONFIG.barricade;
     const maxBlocked = Math.min(B.maxBlocked, LANES - 2); // 硬性规则：至少留 2 条
-    const want = stars <= 1 ? 1 : Math.random() < 0.35 + stars * 0.1 ? 2 : 1;
+    const want = stars <= 1 && RUN.id !== 'hard' && RUN.id !== 'insane' ? 1 : Math.random() < 0.35 + stars * 0.1 + (RUN.diff.barricade < 1 ? 0.4 : 0) ? 2 : 1;
     const count = Math.min(want, maxBlocked);
 
     const lanes = [...Array(LANES).keys()];

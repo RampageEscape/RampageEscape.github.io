@@ -12,5 +12,5 @@ export const TIERS = [
   { id: 'sports', hp: 100, speed: 0, length: 4.4, width: 2.0, model: makePlayerCar },
   { id: 'muscle', hp: 140, speed: 3, length: 4.8, width: 2.15, model: makeMuscleCar },
   { id: 'armored', hp: 200, speed: 1, length: 5.4, width: 2.45, model: makeArmoredCar, ram: true },
-  { id: 'tank', hp: 280, speed: 0, length: 7.0, width: 3.1, model: makePlayerTank, ram: true, cannon: true, tankKill: true },
+  { id: 'tank', hp: 230, speed: 0, length: 7.0, width: 3.1, model: makePlayerTank, ram: true, cannon: true, tankKill: true },
 ];

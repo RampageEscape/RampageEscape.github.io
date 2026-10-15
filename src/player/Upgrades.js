@@ -8,7 +8,7 @@ import { TIERS } from './Vehicles.js';
 export const UPGRADES = {
   evolve: { icon: '🚀', max: TIERS.length - 1, available: (p) => p.tierIndex < TIERS.length - 1, apply: (p) => p.evolve() },
   armor: { icon: '🔩', max: 4, apply: (p) => { p.stats.maxHp += 30; p.heal(30); } },
-  repair: { icon: '🔧', max: 99, available: (p) => p.hp < p.maxHp * 0.85, apply: (p) => p.heal(p.maxHp) },
+  repair: { icon: '🔧', max: 99, available: (p) => p.hp < p.maxHp * 0.85, apply: (p) => p.heal(p.maxHp * 0.6) },
   shield: { icon: '🛡️', max: 99, available: (p) => p.shields < 3, apply: (p) => { p.shields = Math.min(3, p.shields + 1); } },
   nitro: { icon: '⚡', max: 3, apply: (p) => { p.stats.dashCooldown *= 0.75; p.stats.dashDuration += 0.25; p.dashCooldown = 0; } },
   engine: { icon: '⚙️', max: 3, apply: (p) => { p.stats.baseSpeed += 3; p.stats.maxSpeed += 3; } },

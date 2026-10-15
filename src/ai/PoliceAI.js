@@ -5,6 +5,7 @@ import { Vehicle } from '../entities/Vehicle.js';
 import { makePoliceCar, makeSwat } from '../models/Models.js';
 import { clamp, damp, lerp, rand, smoothstep } from '../core/utils.js';
 import { classifyContact, pushApart } from '../systems/Collisions.js';
+import { RUN } from '../data/difficulty.js';
 
 /**
  * 警车 AI（普通警车 / 特警车 SWAT 共用）
@@ -148,9 +149,9 @@ export class PoliceAI extends Vehicle {
       // 在玩家后面/旁边 → 减速退后；已经在玩家前面 → 加速让开（不能刹车，否则玩家会撞上来）
       rel = dist < -2 ? -R.backoffRel : R.backoffRel;
     } else if (dist > R.far) {
-      rel = R.maxBoost;
+      rel = R.maxBoost * RUN.diff.speed;
     } else if (dist > R.near) {
-      rel = lerp(R.nearMaxRel, R.maxBoost, smoothstep(R.near, R.far, dist));
+      rel = lerp(R.nearMaxRel, R.maxBoost * RUN.diff.speed, smoothstep(R.near, R.far, dist));
     } else {
       const maxRel = this.role === 0 ? R.blockerRel : R.nearMaxRel;
       rel = clamp((player.z + desiredGap - this.z) * 0.5, R.nearMinRel, maxRel);
@@ -165,7 +166,7 @@ export class PoliceAI extends Vehicle {
     } else {
       this.closeTime = Math.max(0, this.closeTime - dt);
     }
-    let speed = Math.min(this.refSpeed + rel, R.absMax);
+    let speed = Math.min(this.refSpeed + rel, R.absMax * RUN.diff.speed); // 高难度警车更快，可能追上全速的玩家
     // 危险范围内的硬上限：绝不比玩家当前速度快超过 nearMaxRel（拦截者超车时用 blockerRel）
     if (near && this.backoff <= 0) speed = Math.min(speed, player.speed + (this.role === 0 ? R.blockerRel : R.nearMaxRel));
     return speed;
@@ -179,13 +180,14 @@ export class PoliceAI extends Vehicle {
    *   正面撞上前车 / 自己变道撞上去 → 扣血
    */
   onPlayerCollision(player, game) {
-    // 冲刺中（PlayerDash）或开着装甲车/坦克（PlayerRam）→ 警车被撞爆
-    if (player.smashes) {
+    const c = classifyContact(player, this);
+    // 冲刺 / 暴走中 → 警车被撞爆；开着装甲车/坦克（PlayerRam）只有正面撞上去才算撞爆，
+    // 被侧挤、被追尾时照常处理 → 重型车辆也会被包夹、被捕
+    if (player.collisionTag === 'PlayerDash' || (player.smashes && (c.type === 'front' || this.mode === 'parked'))) {
       this.explode(game, player);
-      if (!player.isDashing) player.ramImpact(this.type === 'swat' ? 6 : 3);
+      if (!player.isDashing && player.rampage <= 0) player.ramImpact(this.type === 'swat' ? 8 : 4);
       return;
     }
-    const c = classifyContact(player, this);
     if (this.mode === 'parked') {
       // 路障警车是静止的，碰到它一定是玩家自己开过去的
       const front = c.type === 'front';
@@ -198,7 +200,9 @@ export class PoliceAI extends Vehicle {
       this.speed = player.speed - 6; // 警车被弹回去
       game.onPlayerBumped(player);
     } else if (c.type === 'side' && !c.playerAtFault) {
-      player.bump(-c.side, 0);
+      // 普通难度被侧挤不扣血；困难/地狱难度会扣一部分
+      if (RUN.diff.sideRam > 0) player.hit(this.spec.damage * RUN.diff.sideRam, -c.side * 0.8, 0.85);
+      else player.bump(-c.side, 0);
       this.latVel = c.side * 4;
       game.onPlayerBumped(player);
     } else {

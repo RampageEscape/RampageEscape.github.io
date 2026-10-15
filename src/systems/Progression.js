@@ -78,7 +78,7 @@ export class Progression {
 
   /** 赚金币（乘以车库加成），返回实际得到的数量 */
   earn(n) {
-    const got = Math.round(n * this.coinMul);
+    const got = Math.round(n * this.coinMul * (this.rewardMul ?? 1));
     this.data.coins += got;
     this.runCoins += got;
     return got;

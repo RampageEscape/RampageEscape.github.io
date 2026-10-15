@@ -5,7 +5,7 @@ import { GLOW_TEX } from '../fx/Particles.js';
 import { clamp, damp, rand } from '../core/utils.js';
 
 const H = {
-  altitude: 13, duration: 25, bombEvery: 2.6, bombFlight: 1.15, blastRadius: 3.4, blastDamage: 22,
+  altitude: 13, duration: 25, bombEvery: 2.2, bombFlight: 1.15, blastRadius: 3.4, blastDamage: 28,
   hp: 2, score: 2000, coins: 60,
 };
 const SAMPLE = {};
@@ -180,7 +180,9 @@ export class Helicopter {
 
   dropBomb() {
     const g = this.game, p = g.player;
-    const tz = p.z + p.speed * H.bombFlight, tl = clamp(p.lateral + rand(-1.2, 1.2), -ROAD_HALF + 1, ROAD_HALF - 1);
+    // 瞄准玩家的预判位置；一直不换车道的玩家会被精准命中
+    const camping = Math.abs(p.latVel) < 0.5;
+    const tz = p.z + p.speed * H.bombFlight, tl = clamp(p.lateral + (camping ? rand(-0.4, 0.4) : rand(-1.4, 1.4)), -ROAD_HALF + 1, ROAD_HALF - 1);
     const w = Road.sample(tz, tl, {});
     const to = new THREE.Vector3(w.x, 0, w.z);
     const mesh = new THREE.Mesh(this.bombGeo, this.bombMat);

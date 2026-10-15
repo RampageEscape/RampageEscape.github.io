@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { t, applyStatic, toggleLang, onLangChange } from '../i18n.js';
 import { GARAGE } from '../systems/Progression.js';
+import { DIFFICULTY_IDS } from '../data/difficulty.js';
 
 const $ = (id) => document.getElementById(id);
 const v = new THREE.Vector3();
@@ -21,6 +22,7 @@ export class HUD {
       coins: $('coins'), missions: $('missions'), fever: $('fever-fill'), rampageFx: $('rampage-fx'),
       garage: $('garage'), garageGrid: $('garage-grid'), garageCoins: $('garage-coins'), titleCoins: $('title-coins'),
       cCoins: $('complete-coins'), overCoins: $('over-coins'),
+      pause: $('pause'), diffRow: $('difficulty-row'),
     };
     const on = (id, fn) => $(id).addEventListener('click', fn);
     on('mode-levels', () => this.onOpenLevels?.());
@@ -40,6 +42,13 @@ export class HUD {
     });
     press(this.el.dash, () => this.onDash?.());
     press(this.el.fire, () => this.onFire?.());
+    press($('pause-btn'), () => this.onPause?.());
+    on('pause-resume', () => this.onResume?.());
+    on('pause-restart', () => this.onRestart?.());
+    on('pause-menu', () => this.onMenu?.());
+    on('pause-music', () => { this.onToggleMusic?.(); this.renderPause(); });
+    on('pause-sfx', () => { this.onToggleSfx?.(); this.renderPause(); });
+    on('pause-camera', () => { this.onToggleCamera?.(); this.renderPause(); });
     this.el.lang.addEventListener('click', () => toggleLang());
     this.lastStars = -1;
     this.bannerTimer = 0;
@@ -57,6 +66,7 @@ export class HUD {
       if (this.screen === 'complete') this.renderComplete();
       if (this.screen === 'garage') this.renderGarage();
       if (this.screen === 'title') this.showTitle();
+      if (this.screen === 'pause') this.renderPause();
       if (this.missionList) this.showMissions(this.missionList);
       this.lastDistance = -1;
       this.jnKey = null;
@@ -66,8 +76,8 @@ export class HUD {
   /** 只显示一个全屏界面（null = 都不显示，正在游戏） */
   setScreen(name) {
     this.screen = name;
-    for (const k of ['title', 'levels', 'upgrade', 'complete', 'over', 'garage']) this.el[k].classList.toggle('hidden', k !== name);
-    this.el.hud.classList.toggle('hidden', !(name === null || name === 'upgrade'));
+    for (const k of ['title', 'levels', 'upgrade', 'complete', 'over', 'garage', 'pause']) this.el[k].classList.toggle('hidden', k !== name);
+    this.el.hud.classList.toggle('hidden', !(name === null || name === 'upgrade' || name === 'pause'));
     // 语言按钮只在菜单类界面显示，游戏中隐藏避免误触
     this.el.lang.classList.toggle('hidden', !['title', 'levels', 'complete', 'over', 'garage'].includes(name));
     if (name !== null) this.setRampage(false);
@@ -76,6 +86,35 @@ export class HUD {
   showTitle() {
     this.setScreen('title');
     if (this.prog) this.el.titleCoins.textContent = t('garageCoins', { n: this.prog.coins.toLocaleString() });
+    // 难度选择
+    const cur = this.difficulty?.() ?? 'normal', row = this.el.diffRow;
+    row.innerHTML = `<div class="diff-label">${t('difficulty')}</div>`;
+    const chips = document.createElement('div');
+    chips.className = 'diff-chips';
+    for (const id of DIFFICULTY_IDS) {
+      const b = document.createElement('button');
+      b.className = `diff-chip ${id}` + (id === cur ? ' on' : '');
+      b.textContent = t('diff_' + id);
+      b.addEventListener('click', () => this.onDifficulty?.(id));
+      chips.appendChild(b);
+    }
+    row.appendChild(chips);
+    const hint = document.createElement('div');
+    hint.className = 'diff-hint';
+    hint.textContent = t('diffHint_' + cur);
+    row.appendChild(hint);
+  }
+
+  showPause() {
+    this.setScreen('pause');
+    this.renderPause();
+  }
+
+  renderPause() {
+    const s = this.settings?.() ?? {};
+    $('pause-music').textContent = t(s.music === false ? 'musicOff' : 'musicOn');
+    $('pause-sfx').textContent = t(s.sfx === false ? 'sfxOff' : 'sfxOn');
+    $('pause-camera').textContent = t(s.camera === 'chase' ? 'camChase' : 'camIso');
   }
 
   // ---------------- 车库 ----------------
