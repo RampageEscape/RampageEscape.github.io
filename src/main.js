@@ -21,6 +21,7 @@ import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
 import { loadModels } from './models/ModelLibrary.js';
 import { Progression } from './systems/Progression.js';
+import { AudioEngine } from './audio/AudioEngine.js';
 import { DIFFICULTIES, RUN, setDifficulty } from './data/difficulty.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -94,7 +95,7 @@ class Game {
     this.snow = new Snow(this.scene);
     this.hud = new HUD();
     this.player = new PlayerController(this.scene, {
-      onDashStart: () => { this.feel.onDashStart(); this.dashKills = 0; this.fx.decal('ring', this.player.mesh.position, 0.35, 7, 0x66e0ff); },
+      onDashStart: () => { this.feel.onDashStart(); this.audio?.dash(); this.dashKills = 0; this.fx.decal('ring', this.player.mesh.position, 0.35, 7, 0x66e0ff); },
       onRampageStart: () => this.onRampage(true),
       onRampageEnd: () => this.onRampage(false),
       onHit: (p, dmg) => this.onPlayerHit(dmg),
@@ -129,6 +130,18 @@ class Game {
     this.best = Number(this.load('best') || 0);
     this.prog = new Progression();
     this.hud.prog = this.prog;
+    // ---- 音频：第一次点击/按键后才能出声（浏览器规定）
+    this.audio = new AudioEngine();
+    const unlock = () => this.audio.unlock();
+    addEventListener('pointerdown', unlock, { passive: true });
+    addEventListener('keydown', unlock);
+    document.addEventListener('click', (e) => { if (e.target.closest?.('button')) this.audio.ui(); });
+    const att = (pos) => clamp(1 - this.player.mesh.position.distanceTo(pos) / 90, 0.15, 1); // 越远越小声
+    this.fx.onExplosion = (pos, power) => this.audio.explosion(power, att(pos));
+    this.fx.onImpact = (pos, s) => this.audio.impact(s, att(pos));
+    hud.onToggleMusic = () => this.audio.toggleMusic();
+    hud.onToggleSfx = () => this.audio.toggleSfx();
+    hud.settings = () => ({ music: this.audio.musicOn, sfx: this.audio.sfxOn, camera: this.cameraMode });
     setDifficulty(this.load('difficulty') || 'normal');
     hud.onDifficulty = (id) => { setDifficulty(id); this.save('difficulty', id); hud.showTitle(); };
     hud.difficulty = () => RUN.id;
@@ -188,12 +201,15 @@ class Game {
     this.spawner.prefill(this.player.z);
     this.hud.showPlaying();
     this.hud.banner(this.biome);
+    this.audio.setMode('game');
   }
 
   /** 回主菜单：背景里继续自动开车（无尽地图） */
   toMenu() {
     this.resetRun();
     this.state = 'title';
+    this.audio?.setMode('menu');
+    this.audio?.setPaused(false);
     this.hud.showTitle();
   }
 
@@ -202,12 +218,14 @@ class Game {
     if (this.state !== 'playing') return;
     this.state = 'paused';
     this.hud.showPause();
+    this.audio.setPaused(true);
   }
 
   resume() {
     if (this.state !== 'paused') return;
     this.state = 'playing';
     this.hud.showPlaying(true);
+    this.audio.setPaused(false);
     this.last = performance.now();
   }
 
@@ -223,6 +241,7 @@ class Game {
   // ---------------- 改装站 ----------------
   openUpgrade() {
     this.state = 'upgrade';
+    this.audio.garage();
     const p = this.player;
     const cards = rollUpgrades(p).map((id) => {
       const u = UPGRADES[id], next = TIERS[p.tierIndex + 1];
@@ -241,6 +260,7 @@ class Game {
     if (this.state !== 'upgrade') return;
     const p = this.player;
     applyUpgrade(p, id);
+    this.audio.upgrade(id === 'evolve');
     this.state = 'playing';
     this.hud.showPlaying();
     // 回到路上：短暂无敌，附近的警车被推远一点，避免一出来就被包夹
@@ -268,6 +288,7 @@ class Game {
   onRampage(on) {
     this.hud.setRampage(on);
     if (!on) return;
+    this.audio.rampage();
     this.feel.shake.add(0.4);
     this.feel.slowMo(0.4, 0.45);
     this.bloomKick = 1.2;
@@ -289,6 +310,7 @@ class Game {
     mid.y = 0.8;
     for (let i = 0; i < 8; i++) this.fx.spark(mid, new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 4, (Math.random() - 0.5) * 8), 0.3, [0.6, 2.4, 3.4]);
     this.hud.popup(`${t('nearMiss')} +${pts}`, mid, this.camera);
+    this.audio.whoosh(e.lateral > p.lateral ? -0.6 : 0.6);
     this.missionEvent('nearMiss');
   }
 
@@ -310,6 +332,7 @@ class Game {
     if (this.state !== 'playing') return;
     for (const m of this.prog.track(id, amount, mode)) {
       this.hud.banner('missionDone', { n: m.paid, text: this.hud.missionText(m) });
+      this.audio.mission();
       this.feel.shake.add(0.1);
     }
     this.hud.showMissions(this.prog.missions);
@@ -335,6 +358,7 @@ class Game {
   }
 
   onPickup(kind, pos) {
+    this.audio.pickup(kind);
     this.prog.earn(3);
     this.addFever(0.06);
     this.missionEvent('pickups');
@@ -350,6 +374,7 @@ class Game {
   }
 
   onJump() {
+    this.audio.jump();
     this.addFever(0.08);
     this.missionEvent('jumps');
     this.score += 200;
@@ -359,11 +384,13 @@ class Game {
   }
 
   onLand(impact) {
+    this.audio.land(impact);
     this.feel.shake.add(Math.min(0.4, impact * 0.025));
     this.fx.dust(this.player.mesh.position);
   }
 
   onShieldBreak() {
+    this.audio.shield();
     this.feel.shake.add(0.25);
     this.hud.flash('#5ad1ff', 0.3);
     this.hud.popup(t('shieldBlock'), this.player.mesh.position, this.camera);
@@ -385,6 +412,7 @@ class Game {
     this.save('progress', JSON.stringify(pr));
     this.feel.slowMo(0.3, 0.8);
     this.hud.flash('#fff6d8', 0.5);
+    this.audio.sting(true);
     const hasNext = LEVELS.indexOf(lv) < LEVELS.length - 1;
     this.prog.endRun();
     const coins = { run: this.prog.runCoins, total: this.prog.coins };
@@ -447,6 +475,7 @@ class Game {
     this.feel.hitStop(0.2, 0.05);
     this.feel.slowMo(0.3, 0.8);
     this.feel.shake.add(0.6);
+    this.audio.sting(false);
     const score = Math.floor(this.score), distance = Math.floor(this.distance);
     this.best = Math.max(this.best, score);
     this.save('best', this.best);
@@ -512,6 +541,7 @@ class Game {
 
     this.world.update(this.player.z);
     this.fx.update(dt);
+    this.updateAudio(realDt);
     updateSirens(this.time);
     this.updateEnvironment(realDt);
     this.updateCamera(realDt);
@@ -555,6 +585,28 @@ class Game {
     if (!p.alive) this.gameOver('WRECKED');
     else if (this.bust >= 1) this.gameOver('BUSTED');
     else if (this.level && p.z >= this.level.length) this.completeLevel();
+  }
+
+  /** 持续音：引擎、警笛、直升机、风声、轮胎尖叫（+ 转弯时的轮胎烟） */
+  updateAudio(dt) {
+    const p = this.player, pp = p.mesh.position;
+    let near = 99;
+    for (const c of this.spawner.police) if (c.collidable && c.mode === 'chase') near = Math.min(near, c.mesh.position.distanceTo(pp));
+    const heli = this.spawner.heli;
+    const h = Road.heading(p.z), turn = this.lastHeading === undefined ? 0 : Math.abs(dampAngle(0, h - this.lastHeading, 1e9, 1)) / Math.max(dt, 1e-3);
+    this.lastHeading = h;
+    const screech = this.state === 'playing' && !p.airborne ? clamp((turn - 0.6) * 0.8, 0, 1) + clamp((Math.abs(p.latVel) - 7) * 0.15, 0, 0.5) : 0;
+    if (screech > 0.3 && Math.random() < 0.5) this.fx.smokePuffAt(pp, { x: 0, y: 0.6, z: 0 }, 0.9, 1.4, 0.62, 0.2);
+    this.audio.update({
+      speed01: clamp(p.speed / 60, 0, 1),
+      dashing: p.isDashing,
+      rampage: p.rampage > 0,
+      heavy: !!p.tier.ram,
+      siren: this.state === 'title' ? 0 : clamp(1 - near / 45, 0, 1),
+      rotor: heli.active ? clamp(1 - heli.mesh.position.distanceTo(pp) / 90, 0, 1) : 0,
+      screech,
+      playing: this.state === 'playing',
+    });
   }
 
   updateEnvironment(dt) {

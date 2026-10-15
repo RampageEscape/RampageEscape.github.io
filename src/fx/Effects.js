@@ -118,6 +118,7 @@ export class Effects {
   // ---------------------------------------------------------------- 组合特效
   /** 警车爆炸：闪光 → 火球 → 火焰柱 → 火花 → 余烬 → 浓烟柱，加冲击波、焦痕、飞出的零件 */
   explosion(pos, power = 1, carry = 0, heading = 0) {
+    this.onExplosion?.(pos, power); // 声音
     const c = v1.copy(pos);
     c.y = Math.max(c.y, 0.8);
     const kx = Math.sin(heading) * carry, kz = Math.cos(heading) * carry; // 沿道路前进方向的惯性
@@ -164,6 +165,7 @@ export class Effects {
 
   /** 普通碰撞：一束火花 + 少量烟 */
   impact(pos, s = 1) {
+    this.onImpact?.(pos, s);
     const c = v1.copy(pos);
     c.y = Math.max(c.y, 0.7);
     for (let i = 0; i < 16 * s; i++) this.spark(c, randDir(v2, 0.4).multiplyScalar(rand(8, 20)), rand(0.2, 0.5));

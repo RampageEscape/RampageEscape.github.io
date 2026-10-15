@@ -102,6 +102,7 @@ export class Cannon {
     g.scene.add(mesh);
     this.shells.push({ from, to, t: 0, flight: Math.max(0.12, from.distanceTo(to) / C.speed), mesh });
     g.fx.muzzleFlash(from);
+    g.audio?.cannon();
     g.feel.shake.add(0.18);
     g.feel.zoomKick -= 0.02;
     p.speed *= 0.97; // 后坐力

@@ -106,6 +106,7 @@ export class Shells {
     this.list.push({ from, to, t: 0, mesh });
     this.game.fx.muzzleFlash(from);
     this.game.fx.warning(to, T.shellFlight, T.blastRadius);
+    this.game.audio?.whistle(T.shellFlight);
     this.game.feel.shake.add(0.12);
   }
 

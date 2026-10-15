@@ -100,6 +100,7 @@ export class Helicopter {
     this.spin = 0;
     g.scene.add(this.mesh, this.u.beam, this.u.spot);
     g.hud.banner('heliIncoming');
+    g.audio?.alert();
     g.feel.shake.add(0.2);
   }
 
@@ -190,6 +191,7 @@ export class Helicopter {
     g.scene.add(mesh);
     this.bombs.push({ from: this.mesh.position.clone(), to, t: 0, mesh });
     g.fx.warning(to, H.bombFlight, H.blastRadius);
+    g.audio?.whistle(H.bombFlight);
   }
 
   updateBombs(dt) {
