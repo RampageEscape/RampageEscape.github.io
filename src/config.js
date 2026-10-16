@@ -1,7 +1,7 @@
 // 所有可调参数集中在这里，方便做数值平衡
 export const CONFIG = {
   road: { lanes: 4, laneWidth: 3.6, biomeLength: 800, transition: 120 },
-  world: { chunkLength: 40, chunksAhead: 7, chunksBehind: 2 },
+  world: { chunkLength: 40, chunksAhead: 7, chunksBehind: 2, tallNear: true }, // tallNear：追尾视角时镜头一侧也可以盖高楼（由 main.js 根据视角设置）
   // 路口：十字 / T 字 / Y 型分叉
   junction: {
     firstAt: 440,          // 第一个路口在多少米

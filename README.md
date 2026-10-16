@@ -63,3 +63,14 @@ docs/ARCHITECTURE.md      架构设计与打击感设计说明
 ```
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## 素材来源与授权
+
+| 素材 | 作者 / 来源 | 授权 |
+|---|---|---|
+| 主角跑车（Car Concept，`assets/hero/`） | Eric Chadwick（Darmstadt Graphics Group GmbH），[Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept)；游戏里删掉了看不见的零件、合并了网格、玻璃改为普通半透明材质 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| 警车、民用车、碎片模型（`assets/models/`） | [Kenney Car Kit](https://kenney.nl/assets/car-kit) | CC0 |
+| 天空 HDRI、沥青 / 雪地 / 沙地 / 草地 / 海滩 / 水泥地贴图（`assets/env/`、`assets/textures/`） | [Poly Haven](https://polyhaven.com/) | CC0 |
+| 建筑立面、地砖、海浪、粒子贴图 | 游戏代码程序化生成 | 随本项目 |
+| 音效与背景音乐 | Web Audio 实时合成（`src/audio/AudioEngine.js`） | 随本项目 |
+

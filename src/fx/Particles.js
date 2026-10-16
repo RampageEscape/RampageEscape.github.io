@@ -62,6 +62,7 @@ const VERT = /* glsl */ `
   attribute float aAngle;
   attribute vec3 aColor;
   uniform float uScale;
+  uniform float uPersp;
   varying vec3 vColor;
   varying float vAlpha;
   varying float vAngle;
@@ -69,8 +70,10 @@ const VERT = /* glsl */ `
     vColor = aColor;
     vAlpha = aAlpha;
     vAngle = aAngle;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = aSize * uScale; // 正交相机：大小按“每米多少像素”换算
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    // 正交相机：大小按“每米多少像素”换算；透视相机：再除以距离（近大远小）
+    gl_PointSize = aSize * uScale / (uPersp > 0.5 ? max(-mv.z, 0.5) : 1.0);
   }
 `;
 const FRAG = /* glsl */ `
@@ -109,7 +112,7 @@ export class ParticleLayer {
     g.setAttribute('aAngle', new THREE.BufferAttribute(this.angle, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: map }, uScale: { value: 20 } },
+      uniforms: { uMap: { value: map }, uScale: { value: 20 }, uPersp: { value: 0 } },
       vertexShader: VERT,
       fragmentShader: FRAG,
       transparent: true,

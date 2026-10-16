@@ -12,6 +12,7 @@ import { Snow } from './fx/Weather.js';
 import { HUD } from './ui/HUD.js';
 import { resolveCollisions } from './systems/Collisions.js';
 import { updateSirens } from './models/Models.js';
+import { updateWater } from './world/RoadMaterial.js';
 import { clamp, damp, dampAngle } from './core/utils.js';
 import { t } from './i18n.js';
 import { RoadFeatures } from './world/RoadFeatures.js';
@@ -19,7 +20,8 @@ import { Cannon } from './player/Cannon.js';
 import { TIERS } from './player/Vehicles.js';
 import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
-import { loadModels } from './models/ModelLibrary.js';
+import { loadModels, loadHero } from './models/ModelLibrary.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { Progression } from './systems/Progression.js';
 import { AudioEngine } from './audio/AudioEngine.js';
 import { DIFFICULTIES, RUN, setDifficulty } from './data/difficulty.js';
@@ -33,6 +35,25 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SAMPLE = {};
 const tmpColor = new THREE.Color();
 
+/** 夜城的环境光：深紫色夜空 + 几块粉色、青色的“霓虹灯牌”，生成反射用的环境贴图 */
+function neonEnvironment() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0720);
+  const panel = (r, g, b, x, y, z, w, h) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    m.material.color.setRGB(r, g, b);
+    m.position.set(x, y, z);
+    m.lookAt(0, 0, 0);
+    scene.add(m);
+  };
+  panel(3, 0.35, 2.2, -6, 1.5, 3, 3, 5);
+  panel(3, 0.35, 2.2, 5, 1, 5, 2, 3);
+  panel(0.3, 2.2, 3.2, 6, 1.5, -3, 3, 5);
+  panel(0.3, 2.2, 3.2, -5, 1, -5, 2, 3);
+  panel(0.35, 0.25, 0.7, 0, 8, 0, 14, 14); // 被城市灯光照亮的夜空
+  return scene;
+}
+
 class Game {
   constructor() {
     const canvas = document.getElementById('game');
@@ -40,17 +61,33 @@ class Game {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 电影感色调映射（ACES）：高光柔和过渡，暗部更有层次，写实感的关键之一
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(BIOMES.city.sky);
     this.scene.fog = new THREE.Fog(this.scene.background, 70, 170);
     // 环境反射：让 3D 车模的车漆有光泽（只影响车辆模型的 PBR 材质，地图的低多边形材质不受影响）
+    // 环境光照：先用内置房间环境，真实天空 HDRI（Poly Haven，CC0）加载好后替换
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
+    this.dayEnv = this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.nightEnv = pmrem.fromScene(neonEnvironment(), 0.03).texture; // 夜城：车漆和湿路面反射粉色/青色霓虹，而不是白天的天空
+    this.skyColor = this.scene.background;
+    new RGBELoader().load('assets/env/sky_1k.hdr', (hdr) => {
+      hdr.mapping = THREE.EquirectangularReflectionMapping;
+      this.dayEnv = pmrem.fromEquirectangular(hdr).texture;
+      this.skyTex = hdr; // 追尾视角的天空背景
+      pmrem.dispose();
+    });
 
     // 等距视角：正交相机 + 固定斜俯角
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
+    this.ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
+    this.persp = new THREE.PerspectiveCamera(62, 1, 0.3, 700); // 追尾视角
+    this.cameraMode = this.load('camera') || 'chase';
+    this.camera = this.cameraMode === 'chase' ? this.persp : this.ortho;
+    CONFIG.world.tallNear = this.cameraMode === 'chase';
+    this.chasePos = new THREE.Vector3();
     this.camOffset = new THREE.Vector3(...CONFIG.camera.offset);
     this.camTarget = new THREE.Vector3();
 
@@ -72,7 +109,8 @@ class Game {
 
     // Bloom 光晕：阈值 1.6 → 只有“比白还亮”（HDR）的东西会发光：火焰、火花、警灯、车灯、霓虹
     this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(this.renderPass);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.65, 0.22, 1.6);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
@@ -141,6 +179,7 @@ class Game {
     this.fx.onImpact = (pos, s) => this.audio.impact(s, att(pos));
     hud.onToggleMusic = () => this.audio.toggleMusic();
     hud.onToggleSfx = () => this.audio.toggleSfx();
+    hud.onToggleCamera = () => this.setCameraMode(this.cameraMode === 'chase' ? 'iso' : 'chase');
     hud.settings = () => ({ music: this.audio.musicOn, sfx: this.audio.sfxOn, camera: this.cameraMode });
     setDifficulty(this.load('difficulty') || 'normal');
     hud.onDifficulty = (id) => { setDifficulty(id); this.save('difficulty', id); hud.showTitle(); };
@@ -543,8 +582,10 @@ class Game {
     this.fx.update(dt);
     this.updateAudio(realDt);
     updateSirens(this.time);
+    updateWater(this.time);
     this.updateEnvironment(realDt);
     this.updateCamera(realDt);
+    this.hideNearCamera();
     this.hud.update(this, realDt);
   }
 
@@ -612,8 +653,14 @@ class Game {
   updateEnvironment(dt) {
     const b = BIOMES[Road.biomeAt(this.player.z + 30)];
     const k = 1 - Math.exp(-1.5 * dt);
-    this.scene.background.lerp(tmpColor.setHex(b.sky), k);
-    this.scene.fog.color.copy(this.scene.background);
+    this.skyColor.lerp(tmpColor.setHex(b.sky), k);
+    this.scene.fog.color.copy(this.skyColor);
+    // 追尾视角看得到天空：白天用真实天空 HDRI，夜城用纯色夜空
+    const useSky = this.cameraMode === 'chase' && this.skyTex && !b.night;
+    this.scene.background = useSky ? this.skyTex : this.skyColor;
+    this.scene.backgroundIntensity = 0.85;
+    const env = b.night ? this.nightEnv : this.dayEnv;
+    if (this.scene.environment !== env) this.scene.environment = env;
     this.ground.material.color.lerp(tmpColor.setHex(b.ground), k);
     // 夜晚地图把太阳和天光调暗，让霓虹和发光窗户成为主光源
     this.sun.intensity = damp(this.sun.intensity, b.night ? 0.35 : 2.6, 1.5, dt);
@@ -623,7 +670,40 @@ class Game {
     this.snow.update(dt, this.camTarget, this.snowWeight);
   }
 
+  /**
+   * 追尾视角：贴着镜头的车（通常是跟在后面的警车）会挡住小半个画面 → 离镜头 5.5 米以内时暂时不画。
+   * 用 layers 而不是 visible，避免和对象池的显示/隐藏逻辑打架。
+   */
+  hideNearCamera() {
+    const cam = this.camera.position, chase = this.cameraMode === 'chase';
+    for (const e of this.spawner.entities) {
+      if (!e.mesh) continue;
+      const near = chase && e.mesh.position.distanceToSquared(cam) < 30; // 约 5.5 米
+      if (near === !!e.mesh.userData.camHidden) continue;
+      e.mesh.userData.camHidden = near;
+      e.mesh.traverse((o) => o.layers.set(near ? 1 : 0));
+    }
+  }
+
+  /** 切换视角：俯视（等距正交） / 追尾（透视，车后方） */
+  setCameraMode(mode) {
+    this.cameraMode = mode;
+    // 俯视角时镜头一侧的楼要压低：切换视角后按新规则重建周围的区块（在暂停菜单里切换，看不到重建过程）
+    const tall = mode === 'chase';
+    if (CONFIG.world.tallNear !== tall) {
+      CONFIG.world.tallNear = tall;
+      this.world.reset();
+      this.world.update(this.player.z);
+    }
+    this.save('camera', mode);
+    this.camera = mode === 'chase' ? this.persp : this.ortho;
+    this.renderPass.camera = this.camera;
+    this.chaseInit = false;
+    this.resize();
+  }
+
   updateCamera(dt) {
+    if (this.cameraMode === 'chase') return this.updateChaseCamera(dt);
     const p = this.player;
     // 看向车前方的道路（转弯后自然看向新方向）；冲刺时镜头略微滞后 → 速度感
     const look = CONFIG.camera.lookAhead * this.lookMul + p.speed * 0.1;
@@ -637,8 +717,35 @@ class Game {
     cam.lookAt(this.camTarget);
     cam.rotateZ(this.feel.shake.roll);
     cam.zoom = this.feel.zoom;
-    this.fx.setPixelScale(this.renderer.domElement.height / ((cam.top - cam.bottom) / cam.zoom));
+    this.fx.setPixelScale(this.renderer.domElement.height / ((cam.top - cam.bottom) / cam.zoom), false);
     cam.updateProjectionMatrix();
+    this.sun.position.copy(this.camTarget).add(this.sunOffset);
+    this.sun.target.position.copy(this.camTarget);
+  }
+
+  /**
+   * 追尾视角：镜头在车后上方，看向前方道路。
+   * 位置、朝向都做平滑，转 90° 弯时镜头会自然甩过去；速度越快镜头拉得越远、视野越广（速度感）。
+   */
+  updateChaseCamera(dt) {
+    const p = this.player, cam = this.persp;
+    this.camYaw = dampAngle(this.camYaw, Road.heading(p.z), 4, dt);
+    const h = this.camYaw, w = Road.sample(p.z, p.lateral * 0.8, SAMPLE);
+    const back = 7.2 + p.speed * 0.04, up = 3.1 + p.y * 0.5;
+    const tx = w.x - Math.sin(h) * back, tz = w.z - Math.cos(h) * back;
+    if (!this.chaseInit) { this.chasePos.set(tx, up, tz); this.chaseInit = true; }
+    this.chasePos.x = damp(this.chasePos.x, tx, 9, dt);
+    this.chasePos.y = damp(this.chasePos.y, up, 6, dt);
+    this.chasePos.z = damp(this.chasePos.z, tz, 9, dt);
+    const ahead = Road.sample(p.z + 16, p.lateral * 0.5, {});
+    this.camTarget.set(ahead.x, 0, ahead.z);
+    cam.position.copy(this.chasePos).add(this.feel.shake.offset);
+    cam.lookAt(ahead.x, 1.2 + p.y * 0.3, ahead.z);
+    cam.rotateZ(this.feel.shake.roll * 0.6);
+    const fov = 62 + (p.isDashing ? 10 : 0) + (p.rampage > 0 ? 6 : 0);
+    cam.fov = damp(cam.fov, fov / this.feel.zoom, 6, dt);
+    cam.updateProjectionMatrix();
+    this.fx.setPixelScale(this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), true);
     this.sun.position.copy(this.camTarget).add(this.sunOffset);
     this.sun.target.position.copy(this.camTarget);
   }
@@ -650,8 +757,13 @@ class Game {
     this.composer?.setSize(w, h);
     const C = CONFIG.camera;
     const halfW = Math.max(C.minWidth / 2, (C.minHeight / 2) * aspect), halfH = halfW / aspect;
-    Object.assign(this.camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
-    this.camera.updateProjectionMatrix();
+    Object.assign(this.ortho, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
+    this.ortho.updateProjectionMatrix();
+    this.persp.aspect = aspect;
+    this.persp.updateProjectionMatrix();
+    // 追尾视角看得远，雾也推远
+    this.scene.fog.near = this.cameraMode === 'chase' ? 80 : 70;
+    this.scene.fog.far = this.cameraMode === 'chase' ? 300 : 170;
     this.lookMul = aspect < 1 ? 1.5 : 0.7; // 竖屏时看得更远
     // 竖屏屏幕窄，把镜头转正一点，让道路更接近竖直方向
     this.camOffset.set(...C.offset);
@@ -662,4 +774,9 @@ class Game {
 // 先加载 3D 模型（最多等 10 秒），再启动游戏；加载失败的模型会自动用方块模型代替
 Promise.race([loadModels(), new Promise((r) => setTimeout(r, 10000))]).finally(() => {
   window.game = new Game(); // 挂到 window 上方便在控制台调试
+  // 高精度主角车在后台加载，好了就换上（开着跑车/赛车时）
+  loadHero(window.game.renderer).then(() => {
+    const p = window.game.player;
+    if (p.tierIndex <= 1) { p.setTier(p.tierIndex); p.syncMesh(0); }
+  }).catch((e) => console.warn('[hero] 高精度车模加载失败，继续使用普通车模', e));
 });

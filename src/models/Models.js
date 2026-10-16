@@ -74,7 +74,7 @@ function addLightbar(g, width = 0.38) {
 }
 
 export function makePlayerCar() {
-  const k = kitVehicle('sedan-sports', { length: 4.4 });
+  const k = kitVehicle('hero-red', { length: 4.6 }) ?? kitVehicle('sedan-sports', { length: 4.4 });
   if (k) return k;
   const g = vehicle({ L: 4.4, W: 2.0, H: 1.45, body: 0xd8261d, cabinL: 0.36, cabinZ: -0.1, cabinH: 0.36, clearance: 0.28 });
   const root = g.userData.root, { bodyH, clearance } = g.userData.dims;
@@ -86,7 +86,7 @@ export function makePlayerCar() {
 
 /** 进化 1：肌肉车（黑色车身 + 橙色双条纹 + 进气口） */
 export function makeMuscleCar() {
-  const k = kitVehicle('race', { length: 4.8 });
+  const k = kitVehicle('hero-graphite', { length: 4.8 }) ?? kitVehicle('race', { length: 4.8 });
   if (k) return k;
   const g = vehicle({ L: 4.8, W: 2.15, H: 1.55, body: 0x1d1f24, cabinL: 0.34, cabinZ: -0.12, cabinH: 0.36, clearance: 0.32 });
   const root = g.userData.root, { bodyH, clearance } = g.userData.dims, top = clearance + bodyH;

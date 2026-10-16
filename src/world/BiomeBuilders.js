@@ -3,6 +3,8 @@ import { ROAD_HALF } from './Road.js';
 import { GEO, mat } from '../models/Models.js';
 import { pick } from '../core/utils.js';
 import { buildNeon, NEON_PAL } from './NeonBuilder.js';
+import { roadMaterial, sidewalks, groundMaterial, waterMaterial } from './RoadMaterial.js';
+import { FacadeBatch, LOW_STYLES, TALL_STYLES, SHOP_H } from './Facades.js';
 
 // 五张地图的区块构建器。全部通过 ChunkCtx 放东西：坐标都是道路坐标 (s, lat)，
 // 所以无论路线怎么转弯，楼、树、护栏都会自动沿着道路摆放，并避开别的岔路。
@@ -19,7 +21,6 @@ export const PAL = {
   harbor: { ground: 0x8d9096, asphalt: 0x45474c, side: 0xa7a9ad, line: 0xf2f2ea, edge: 0xe8c547 },
   neon: { ...NEON_PAL, edge: 0xe8c547 },
 };
-const BRICKS = [0x8e3b2f, 0xa04a36, 0x7c5a4a, 0x6aa3a0, 0xb5a58f, 0x94563f];
 const FOLIAGE = [0x6d7d2f, 0x5f7230, 0x7e8a36, 0x4f6a2e];
 const ROCKS = [0x9c9a92, 0x8a8880, 0xb0aea6];
 const MESA = [0xc0643d, 0xb5583a, 0xa94f33, 0xcf7a4b];
@@ -51,10 +52,10 @@ function markings(ctx, P, centerYellow, gaps = []) {
 /** 自然地形地图通用：沥青 + 两侧路肩 + 双黄线 */
 function ruralRoad(ctx, P, shoulder = 1.4) {
   const { rib, z0, z1 } = ctx;
-  rib.strip(P.asphalt, z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
+  rib.strip(roadMaterial(P.asphalt), z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
   for (const [a, b] of ctx.roadRanges()) {
-    rib.strip(P.side, a, b, -ROAD_HALF - shoulder, -ROAD_HALF, 0.012, ctx.step);
-    rib.strip(P.side, a, b, ROAD_HALF, ROAD_HALF + shoulder, 0.012, ctx.step);
+    rib.strip(groundMaterial('concrete', P.side), a, b, -ROAD_HALF - shoulder, -ROAD_HALF, 0.012, ctx.step);
+    rib.strip(groundMaterial('concrete', P.side), a, b, ROAD_HALF, ROAD_HALF + shoulder, 0.012, ctx.step);
   }
   markings(ctx, P, true);
 }
@@ -78,14 +79,11 @@ function buildCity(ctx) {
   const gaps = cross ? [[zc - cw, zc + cw]] : [];
   const inCross = (a, b = a) => cross && b > zc - cw - 1 && a < zc + cw + 1;
 
-  ground(ctx, P.ground);
-  rib.strip(P.asphalt, z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
-  for (const [a, b] of ctx.roadRanges(gaps)) {
-    rib.strip(P.side, a, b, -ROAD_HALF - SW, -ROAD_HALF, 0.16, ctx.step);
-    rib.strip(P.side, a, b, ROAD_HALF, ROAD_HALF + SW, 0.16, ctx.step);
-  }
+  ground(ctx, groundMaterial('concrete', P.ground));
+  rib.strip(roadMaterial(P.asphalt), z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
+  sidewalks(ctx, P.side, SW, 0.16, gaps);
   if (cross) {
-    rib.strip(P.asphalt, zc - cw, zc + cw, -GROUND, GROUND, 0.03, 2);
+    rib.strip(roadMaterial(P.asphalt), zc - cw, zc + cw, -GROUND, GROUND, 0.03, 2);
     for (let x = -ROAD_HALF + 0.4; x < ROAD_HALF; x += 1.2) {
       rib.strip(P.line, zc - cw - 2.8, zc - cw - 0.6, x, x + 0.6, 0.05, 4);
       rib.strip(P.line, zc + cw + 0.6, zc + cw + 2.8, x, x + 0.6, 0.05, 4);
@@ -97,25 +95,38 @@ function buildCity(ctx) {
   }
   markings(ctx, P, false, gaps);
 
-  // 两侧建筑：镜头一侧（-lat）压低，避免挡住马路
+  // 两侧建筑：写实立面（地铺商店 + 砖楼/灰泥楼/办公楼/玻璃幕墙）。
+  // 俯视角时镜头一侧（-lat）压低避免挡路；追尾视角两边都可以是高楼。
+  const fb = new FacadeBatch(), tallNear = CONFIG.world.tallNear;
   for (const s of [-1, 1]) {
     let z = z0 + rng() * 3;
     while (z < z1 - 4) {
-      const zEnd = Math.min(z + 9 + rng() * 8, z1);
+      const zEnd = Math.min(z + 10 + rng() * 9, z1);
       if (inCross(z, zEnd)) { z = zc + cw + 1.5; continue; }
-      const depth = 12 + rng() * 10, h = s < 0 ? 3.5 + rng() * 3 : 7 + rng() * 16, len = zEnd - z - 0.6, zm = (z + zEnd) / 2;
-      const lat = s * (ROAD_HALF + SW + 1 + depth / 2), color = pick(BRICKS, rng);
-      const awning = rng() < 0.5 ? pick([0xc0392b, 0x2e7d5b, 0x2d5f8b], rng) : null, acA = rng(), acB = rng(), ac = rng() < 0.7;
-      if (ctx.prop(GEO.boxBase, WHITE(), zm, lat, { sx: depth, sy: h, sz: len, color, r: Math.max(depth, len) * 0.5 })) {
+      const depth = 12 + rng() * 10, len = zEnd - z - 0.6, zm = (z + zEnd) / 2;
+      const floors = s < 0 && !tallNear ? (rng() < 0.35 ? 1 : 0) : 1 + Math.floor(rng() * rng() * 7);
+      const style = floors >= 4 && rng() < 0.7 ? pick(TALL_STYLES, rng) : pick(LOW_STYLES, rng);
+      const lat = s * (ROAD_HALF + SW + 1 + depth / 2), w = ctx.at(zm, lat);
+      const awning = rng() < 0.5 ? pick([0xb03a2e, 0x2e6b4f, 0x2d4f7b, 0x8a6d3b], rng) : null, acA = rng(), acB = rng(), ac = rng() < 0.7;
+      if (!ctx.isBlocked(w.x, w.z, Math.max(depth, len) * 0.5)) {
+        const h = fb.building({ x: w.x, z: w.z, rotY: w.h, w: depth, d: len, floors, style, r: rng });
         const face = lat - (s * depth) / 2; // 朝马路的立面
-        for (let fy = 3.2; fy < h - 1.5; fy += 3.4) ctx.prop(GEO.boxBase, mat(0x2b3a48), zm, face - s * 0.08, { y: fy, sx: 0.3, sy: 1.5, sz: len * 0.8, force: true });
-        ctx.prop(GEO.boxBase, mat(0xe9e1d3), zm, face - s * 0.1, { y: h - 0.6, sx: 0.7, sy: 0.6, sz: len, force: true });
-        if (awning) ctx.prop(GEO.boxBase, WHITE(), zm, face - s * 0.8, { y: 2.6, sx: 1.6, sy: 0.25, sz: len * 0.7, color: awning, force: true });
-        if (ac) ctx.prop(GEO.boxBase, mat(0xb7b9bc), zm + (acB - 0.5) * len * 0.5, lat + (acA - 0.5) * depth * 0.5, { y: h, sx: 2.2, sy: 1.3, sz: 2.2, force: true });
+        // 地铺上方的石材腰线、楼顶压顶（有厚度的线脚，让楼不像一个平整的盒子）
+        ctx.addAt(w, GEO.boxBase, mat(0xcfc6b6), { y: SHOP_H - 0.12, sx: depth + 0.35, sy: 0.32, sz: len + 0.35, align: true });
+        ctx.addAt(w, GEO.boxBase, mat(0xb9b1a2), { y: h - 0.05, sx: depth + 0.3, sy: 0.3, sz: len + 0.3, align: true });
+        if (awning) ctx.prop(GEO.boxBase, WHITE(), zm, face - s * 0.85, { y: 3.0, sx: 1.7, sy: 0.1, sz: len * 0.7, color: awning, force: true });
+        if (ac) ctx.prop(GEO.boxBase, mat(0xb7b9bc), zm + (acB - 0.5) * len * 0.5, lat + (acA - 0.5) * depth * 0.5, { y: h + 0.25, sx: 2.2, sy: 1.3, sz: 2.2, force: true });
       }
       z = zEnd + 0.3 + rng() * 1.5;
     }
+    // 远处天际线：后排的高层玻璃大楼，让追尾视角的地平线像真正的城市
+    if ((s > 0 || tallNear) && rng() < 0.75) {
+      const zm = z0 + rng() * L, depth = 16 + rng() * 10, len = 16 + rng() * 10, lat = s * (ROAD_HALF + SW + 34 + rng() * 22);
+      const w = ctx.at(zm, lat);
+      if (!ctx.isBlocked(w.x, w.z, 16)) fb.building({ x: w.x, z: w.z, rotY: w.h, w: depth, d: len, floors: 8 + Math.floor(rng() * 12), style: pick(TALL_STYLES, rng), shop: false, r: rng });
+    }
   }
+  fb.build(ctx.extraMeshes);
 
   // 路灯（两侧，每 20 米）
   for (let z = Math.ceil(z0 / 20) * 20; z < z1; z += 20) {
@@ -168,7 +179,7 @@ function pine(ctx, s, lat, sc, rng) {
 
 function buildForest(ctx) {
   const P = PAL.forest, { z0, rng } = ctx;
-  ground(ctx, P.ground);
+  ground(ctx, groundMaterial('snow', P.ground));
   ruralRoad(ctx, P, 1.6);
   posts(ctx, 12, ROAD_HALF + 1.1, 0xc9261f);
   for (const s of [-1, 1]) {
@@ -203,14 +214,14 @@ function cactus(ctx, s, lat, sc, rng) {
 
 function buildDesert(ctx) {
   const P = PAL.desert, { z0, rng } = ctx;
-  ground(ctx, P.ground);
+  ground(ctx, groundMaterial('sand', P.ground));
   ruralRoad(ctx, P);
   posts(ctx, 14, ROAD_HALF + 1.0, 0xe67e22);
   for (const s of [-1, 1]) {
     // 远处的平顶岩山：两层岩块 + 浅色顶面；镜头一侧压低
     if (rng() < 0.65) {
       const z = z0 + rng() * L, lat = s * (ROAD_HALF + 22 + rng() * 30), w = 10 + rng() * 14, d = 10 + rng() * 14;
-      const h = s < 0 ? 4 + rng() * 3 : 10 + rng() * 14, ry = rng() * 6.28, c1 = pick(MESA, rng), c2 = pick(MESA, rng);
+      const h = s < 0 && !CONFIG.world.tallNear ? 4 + rng() * 3 : 10 + rng() * 14, ry = rng() * 6.28, c1 = pick(MESA, rng), c2 = pick(MESA, rng);
       const at = ctx.prop(GEO.boxBase, WHITE(), z, lat, { ry, sx: w, sy: h * 0.6, sz: d, color: c1, r: Math.max(w, d) * 0.6, align: false });
       if (at) {
         ctx.addAt(at, GEO.boxBase, WHITE(), { y: h * 0.6, ry, sx: w * 0.8, sy: h * 0.4, sz: d * 0.8, color: c2 });
@@ -241,10 +252,10 @@ function palm(ctx, s, lat, sc, rng) {
 function buildCoast(ctx) {
   const P = PAL.coast, beach = 13, { z0, z1, rng, rib } = ctx;
   // 镜头一侧（-lat）是沙滩和大海，视野开阔不挡路
-  rib.strip(P.sea, z0, z1, -80, -ROAD_HALF - beach, 0, ctx.step);
+  rib.strip(waterMaterial(P.sea), z0, z1, -80, -ROAD_HALF - beach, 0, ctx.step);
   rib.strip(P.foam, z0, z1, -ROAD_HALF - beach - 0.6, -ROAD_HALF - beach + 0.5, 0.02, ctx.step);
-  rib.strip(P.sand, z0, z1, -ROAD_HALF - beach + 0.5, -ROAD_HALF - 1.2, 0.01, ctx.step);
-  ground(ctx, P.ground, ROAD_HALF + 1.2, GROUND);
+  rib.strip(groundMaterial('beach', P.sand), z0, z1, -ROAD_HALF - beach + 0.5, -ROAD_HALF - 1.2, 0.01, ctx.step);
+  ground(ctx, groundMaterial('grass', P.ground), ROAD_HALF + 1.2, GROUND);
   ruralRoad(ctx, P, 1.2);
   // 海边护栏：每 4 米一节，跟着道路朝向，弯道上也贴着路
   for (let z = Math.ceil(z0 / 4) * 4; z < z1; z += 4) {
@@ -272,12 +283,9 @@ function buildCoast(ctx) {
 // ---------------------------------------------------------------- 工业港口
 function buildHarbor(ctx) {
   const P = PAL.harbor, SW = 3, { z0, z1, rng, rib } = ctx;
-  ground(ctx, P.ground);
-  rib.strip(P.asphalt, z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
-  for (const [a, b] of ctx.roadRanges()) {
-    rib.strip(P.side, a, b, -ROAD_HALF - SW, -ROAD_HALF, 0.12, ctx.step);
-    rib.strip(P.side, a, b, ROAD_HALF, ROAD_HALF + SW, 0.12, ctx.step);
-  }
+  ground(ctx, groundMaterial('concrete', P.ground));
+  rib.strip(roadMaterial(P.asphalt), z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
+  sidewalks(ctx, P.side, SW, 0.12);
   markings(ctx, P, false);
 
   // 集装箱堆：镜头一侧只堆 1 层，另一侧 1~3 层
@@ -286,7 +294,7 @@ function buildHarbor(ctx) {
     while (z < z1 - 3) {
       const len = 6.1, rows = 1 + Math.floor(rng() * 2), zm = z + len / 2;
       for (let r = 0; r < rows; r++) {
-        const stacks = s < 0 ? 1 : 1 + Math.floor(rng() * 3), colors = [pick(CONTAINERS, rng), pick(CONTAINERS, rng), pick(CONTAINERS, rng)];
+        const stacks = s < 0 && !CONFIG.world.tallNear ? 1 : 1 + Math.floor(rng() * 3), colors = [pick(CONTAINERS, rng), pick(CONTAINERS, rng), pick(CONTAINERS, rng)];
         const w = ctx.prop(GEO.boxBase, WHITE(), zm, s * (ROAD_HALF + SW + 3.3 + r * 2.7), { sx: 2.45, sy: 2.55, sz: len, color: colors[0], r: 3.2 });
         if (w) for (let k = 1; k < stacks; k++) ctx.addAt(w, GEO.boxBase, WHITE(), { y: k * 2.6, sx: 2.45, sy: 2.55, sz: len, color: colors[k], align: true });
       }
@@ -307,7 +315,7 @@ function buildHarbor(ctx) {
   // 仓库
   for (const s of [-1, 1]) {
     if (rng() < 0.3) continue;
-    const z = z0 + rng() * L, depth = 14 + rng() * 8, len = 16 + rng() * 8, h = s < 0 ? 4 + rng() * 2 : 7 + rng() * 5;
+    const z = z0 + rng() * L, depth = 14 + rng() * 8, len = 16 + rng() * 8, h = s < 0 && !CONFIG.world.tallNear ? 4 + rng() * 2 : 7 + rng() * 5;
     const lat = s * (ROAD_HALF + SW + 12 + depth / 2 + rng() * 10), color = pick([0x6d8a96, 0x8a8f94, 0x5f7380, 0xa3a7ab], rng);
     const w = ctx.prop(GEO.boxBase, WHITE(), z, lat, { sx: depth, sy: h, sz: len, color, r: Math.max(depth, len) * 0.5 });
     if (w) ctx.addAt(w, GEO.boxBase, mat(0x5a5f66), { y: h, sx: depth + 0.4, sy: 0.5, sz: len + 0.4, align: true });

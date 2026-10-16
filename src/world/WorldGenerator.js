@@ -5,11 +5,13 @@ import { JUNCTION_ROAD_CLEARANCE } from './LevelManager.js';
 import { mat } from '../models/Models.js';
 import { mulberry32 } from '../core/utils.js';
 import { BUILDERS, PAL } from './BiomeBuilders.js';
+import { roadMaterial } from './RoadMaterial.js';
 
 const L = CONFIG.world.chunkLength;
 const J = CONFIG.junction;
 
-/** 把地面/道路/标线拼成少量大网格（每种颜色一个 mesh），沿任意路线铺设 */
+/** 把地面/道路/标线拼成少量大网格（每种颜色/材质一个 mesh），沿任意路线铺设；带 UV，可以贴真实材质 */
+const UV_SCALE = 1 / 6; // 每 6 米重复一次贴图
 class Ribbons {
   constructor(path, yBase) {
     this.path = path;
@@ -18,32 +20,44 @@ class Ribbons {
     this.a = {};
     this.b = {};
   }
-  quad(color, ax, az, bx, bz, cx, cz, dx, dz, y) {
-    if (!this.buckets.has(color)) this.buckets.set(color, []);
+  bucket(color) {
+    if (!this.buckets.has(color)) this.buckets.set(color, { pos: [], uv: [] });
+    return this.buckets.get(color);
+  }
+  // 四边形 A(a侧,s0) B(b侧,s0) C(a侧,s1) D(b侧,s1)，顶点顺序保证法线朝上
+  quad(color, A, B, C, D, y, ua, ub, v0, v1) {
+    const k = this.bucket(color);
     y += this.yBase;
-    this.buckets.get(color).push(ax, y, az, cx, y, cz, bx, y, bz, bx, y, bz, cx, y, cz, dx, y, dz);
+    k.pos.push(A.x, y, A.z, C.x, y, C.z, B.x, y, B.z, B.x, y, B.z, C.x, y, C.z, D.x, y, D.z);
+    k.uv.push(ua, v0, ua, v1, ub, v0, ub, v0, ua, v1, ub, v1);
   }
   // 沿路线的条带：里程 s0~s1，横向 a~b（a < b，+lat 在左侧）
   strip(color, s0, s1, a, b, y, step = 4) {
-    const P = this.path, A = this.a, B = this.b; // A = a 侧（右）, B = b 侧（左）
-    let s = s0;
-    P.sample(s, a, A);
-    P.sample(s, b, B);
-    let ax = A.x, az = A.z, bx = B.x, bz = B.z;
+    const P = this.path;
+    let A = P.sample(s0, a, {}), B = P.sample(s0, b, {}), s = s0;
     while (s < s1 - 1e-6) {
-      s = Math.min(s + step, s1);
-      P.sample(s, a, A);
-      P.sample(s, b, B);
-      // 顶点顺序：a 侧在前，保证法线朝上（不然会被背面剔除）
-      this.quad(color, ax, az, bx, bz, A.x, A.z, B.x, B.z, y);
-      ax = A.x; az = A.z; bx = B.x; bz = B.z;
+      const sn = Math.min(s + step, s1), C = P.sample(sn, a, {}), D = P.sample(sn, b, {});
+      this.quad(color, A, B, C, D, y, a * UV_SCALE, b * UV_SCALE, s * UV_SCALE, sn * UV_SCALE);
+      A = C; B = D; s = sn;
+    }
+  }
+  // 竖直条带（路缘石侧面）：沿路线、在横向 lat 处从 y0 立到 y1。y0 < y1 时朝 -lat（右边），反过来朝 +lat
+  wall(color, s0, s1, lat, y0, y1, step = 4) {
+    const P = this.path, k = this.bucket(color), yb = this.yBase, a = y0 + yb, b = y1 + yb;
+    let A = P.sample(s0, lat, {}), s = s0;
+    while (s < s1 - 1e-6) {
+      const sn = Math.min(s + step, s1), C = P.sample(sn, lat, {}), u0 = s * UV_SCALE, u1 = sn * UV_SCALE;
+      k.pos.push(A.x, a, A.z, C.x, a, C.z, A.x, b, A.z, A.x, b, A.z, C.x, a, C.z, C.x, b, C.z);
+      k.uv.push(u0, 0, u1, 0, u0, 0.03, u0, 0.03, u1, 0, u1, 0.03);
+      A = C; s = sn;
     }
   }
   build(group) {
-    // color 可以是颜色值（用缓存的 Lambert 材质），也可以直接是一个材质（例如霓虹灯带的发光材质）
-    for (const [color, arr] of this.buckets) {
+    // color 可以是颜色值（用缓存的 Lambert 材质），也可以直接是一个材质（真实沥青、霓虹灯带……）
+    for (const [color, k] of this.buckets) {
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(k.pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(k.uv, 2));
       geo.computeVertexNormals();
       const m = new THREE.Mesh(geo, typeof color === 'number' ? mat(color) : color);
       m.receiveShadow = true;
@@ -74,7 +88,7 @@ class InstanceBatch {
       });
       im.castShadow = !material.transparent && !material.isMeshBasicMaterial; // 发光体和光晕不投影
       im.receiveShadow = true;
-      im.frustumCulled = false;
+      im.computeBoundingSphere(); // 包住所有实例 → 可以正常做视锥剔除（主画面和阴影贴图都省掉看不到的区块）
       group.add(im);
     }
   }
@@ -266,7 +280,10 @@ export class WorldGenerator {
     if (jn.type === 'fork') return group;
     const biome = jn.options[0].path.biomeAt(jn.sEntry - 1);
     const h = jn.h0, cx = jn.x + Math.sin(h) * J.box, cz = jn.z + Math.cos(h) * J.box;
-    const pad = new THREE.Mesh(new THREE.PlaneGeometry(2 * J.box + 0.6, 2 * J.box + 0.6).rotateX(-Math.PI / 2), mat((PAL[biome] ?? PAL.city).asphalt));
+    const padGeo = new THREE.PlaneGeometry(2 * J.box + 0.6, 2 * J.box + 0.6).rotateX(-Math.PI / 2);
+    const uv = padGeo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (2 * J.box) / 6, uv.getY(i) * (2 * J.box) / 6);
+    const pad = new THREE.Mesh(padGeo, roadMaterial((PAL[biome] ?? PAL.city).asphalt));
     pad.position.set(cx, 0.045, cz);
     pad.rotation.y = h;
     pad.receiveShadow = true;

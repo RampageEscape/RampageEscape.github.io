@@ -5,6 +5,7 @@ import { ROAD_HALF } from './Road.js';
 import { GEO, mat } from '../models/Models.js';
 import { pick } from '../core/utils.js';
 import { GLOW_TEX } from '../fx/Particles.js';
+import { roadMaterial, sidewalks } from './RoadMaterial.js';
 
 // 霓虹夜城：发光窗户的摩天大楼、霓虹灯带、广告牌、路面彩色倒影
 
@@ -37,7 +38,7 @@ function windowTexture() {
   for (let col = 0; col < 4; col++) {
     for (let row = 0; row < 8; row++) {
       const x = col * 64 + 10, y = row * 32 + 7;
-      const lit = rnd() < 0.5;
+      const lit = rnd() < 0.36;
       g.fillStyle = lit ? pick(['#ffd89a', '#ffe8c0', '#9fd8ff', '#ff9ad5'], rnd) : '#1f1c2c';
       g.fillRect(x, y, 44, 18);
     }
@@ -50,7 +51,7 @@ function windowTexture() {
   return t;
 }
 const WINDOW_MAT = new THREE.MeshBasicMaterial({ map: windowTexture() });
-WINDOW_MAT.color.setRGB(2.1, 2.1, 2.1); // 亮着的窗户略微超过 1，会有淡淡的光晕
+WINDOW_MAT.color.setRGB(1.25, 1.25, 1.25); // 亮着的窗户略微超过 1，会有淡淡的光晕（追尾视角下整面楼都在画面里，不能太亮）
 
 /** 一栋楼的几何体：侧面按真实尺寸重复窗户贴图，顶面贴深色 */
 function buildingGeometry(w, h, d, x, z, rotY) {
@@ -74,10 +75,9 @@ function buildingGeometry(w, h, d, x, z, rotY) {
 export function buildNeon(ctx) {
   const P = NEON_PAL, SW = 3.5, { z0, z1, rng, rib, inst } = ctx;
   rib.strip(P.ground, z0, z1, -45, 45, 0, ctx.step);
-  rib.strip(P.asphalt, z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
+  rib.strip(roadMaterial(P.asphalt, 0.35), z0, z1, -ROAD_HALF, ROAD_HALF, 0.02, ctx.step);
+  sidewalks(ctx, P.side, SW, 0.12);
   for (const [a, b] of ctx.roadRanges()) {
-    rib.strip(P.side, a, b, -ROAD_HALF - SW, -ROAD_HALF, 0.12, ctx.step);
-    rib.strip(P.side, a, b, ROAD_HALF, ROAD_HALF + SW, 0.12, ctx.step);
     // 路边霓虹灯带：一边粉、一边青
     rib.strip(CYAN_STRIP, a, b, -ROAD_HALF - 0.05, -ROAD_HALF + 0.22, 0.06, ctx.step);
     rib.strip(PINK_STRIP, a, b, ROAD_HALF - 0.22, ROAD_HALF + 0.05, 0.06, ctx.step);
@@ -93,7 +93,7 @@ export function buildNeon(ctx) {
     let z = z0 + rng() * 3;
     while (z < z1 - 4) {
       const zEnd = Math.min(z + 10 + rng() * 10, z1), len = zEnd - z - 1, zm = (z + zEnd) / 2;
-      const depth = 12 + rng() * 10, h = s < 0 ? 5 + rng() * 4 : 18 + rng() * 40;
+      const depth = 12 + rng() * 10, h = s < 0 && !CONFIG.world.tallNear ? 5 + rng() * 4 : 18 + rng() * 40;
       const lat = s * (ROAD_HALF + SW + 1 + depth / 2), w = ctx.at(zm, lat);
       const neon = pick(NEON, rng), sign = rng() < 0.55, trim = rng() < 0.7, signY = 6 + rng() * 8;
       if (!ctx.isBlocked(w.x, w.z, Math.max(depth, len) * 0.5)) {
@@ -112,9 +112,9 @@ export function buildNeon(ctx) {
       z = zEnd + 0.5 + rng() * 2;
     }
     // 远处天际线：更高、更远的楼
-    if (s > 0 && rng() < 0.8) {
+    if ((s > 0 || CONFIG.world.tallNear) && rng() < 0.8) {
       const zm = z0 + rng() * L, depth = 14 + rng() * 10, h = 45 + rng() * 45, len = 14 + rng() * 10;
-      const w = ctx.at(zm, ROAD_HALF + SW + 30 + rng() * 25);
+      const w = ctx.at(zm, s * (ROAD_HALF + SW + 30 + rng() * 25));
       if (!ctx.isBlocked(w.x, w.z, 14)) geos.push(buildingGeometry(depth, h, len, w.x, w.z, w.h));
     }
   }

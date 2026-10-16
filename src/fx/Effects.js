@@ -64,9 +64,11 @@ export class Effects {
   }
 
   /** 每帧由 main 调用：正交相机下每米多少像素，用来换算粒子大小 */
-  setPixelScale(px) {
-    this.glow.mat.uniforms.uScale.value = px;
-    this.smoke.mat.uniforms.uScale.value = px;
+  setPixelScale(px, perspective = false) {
+    for (const layer of [this.glow, this.smoke]) {
+      layer.mat.uniforms.uScale.value = px;
+      layer.mat.uniforms.uPersp.value = perspective ? 1 : 0;
+    }
   }
 
   // ---------------------------------------------------------------- 基础发射
