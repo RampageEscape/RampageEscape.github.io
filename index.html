@@ -32,6 +32,7 @@
       <div class="hud-left">
         <div id="score">0</div>
         <div id="distance"></div>
+        <div id="speed-lv"></div>
         <div id="coins"></div>
         <ul id="missions"></ul>
       </div>
@@ -61,6 +62,31 @@
     <button id="dash-btn" data-i18n-aria="dashAria"><span data-i18n="dash">衝刺</span></button>
   </div>
 
+  <!-- 双人对战：左右分屏的 HUD -->
+  <div id="vs-hud" class="hidden">
+    <div class="vs-divider"></div>
+    <div class="vs-panel" id="vs-p0">
+      <div class="vs-head"><span class="vs-tag p1">P1</span><span class="vs-score">0</span></div>
+      <div class="vs-meta"></div>
+      <div class="bar hp"><div class="vs-hp"></div></div>
+      <div class="bar bust"><div class="vs-bust"></div></div>
+      <div class="vs-shields"></div>
+    </div>
+    <div class="vs-panel right" id="vs-p1">
+      <div class="vs-head"><span class="vs-tag p2">P2</span><span class="vs-score">0</span></div>
+      <div class="vs-meta"></div>
+      <div class="bar hp"><div class="vs-hp"></div></div>
+      <div class="bar bust"><div class="vs-bust"></div></div>
+      <div class="vs-shields"></div>
+    </div>
+    <button id="vs-pause" aria-label="pause">❚❚</button>
+    <button id="vs-dash-0" class="vs-dash left"><span data-i18n="dash">衝刺</span></button>
+    <button id="vs-dash-1" class="vs-dash right"><span data-i18n="dash">衝刺</span></button>
+    <button id="vs-fire-0" class="vs-fire left hidden"><span data-i18n="fire">開炮</span></button>
+    <button id="vs-fire-1" class="vs-fire right hidden"><span data-i18n="fire">開炮</span></button>
+  </div>
+  <div id="countdown" class="hidden"></div>
+
   <div id="rampage-fx" class="hidden"></div>
   <div id="banner"></div>
   <div id="popups"></div>
@@ -85,6 +111,7 @@
       <button id="mode-endless" class="alt" data-i18n="modeEndless">無盡模式</button>
       <button id="open-garage" class="alt" data-i18n="garage">車庫</button>
     </div>
+    <button id="mode-versus" class="versus-btn" data-i18n="modeVersus">👥 雙人對戰</button>
     <p id="title-coins"></p>
     <button id="install-btn" class="install hidden" data-i18n="installApp">📲 安裝到手機</button>
   </div>
@@ -95,6 +122,30 @@
       <h3 data-i18n="installTitle">安裝到主畫面</h3>
       <ol data-i18n="installStepsIOS"></ol>
       <button id="install-hint-close" data-i18n="installClose">知道了</button>
+    </div>
+  </div>
+
+  <div id="versus-setup" class="screen hidden">
+    <h2 data-i18n="vsTitle">👥 雙人對戰</h2>
+    <ul class="vs-rules" data-i18n="vsRules"></ul>
+    <div class="vs-controls">
+      <div class="vs-ctrl p1"><b>P1</b><span data-i18n="vsCtrlP1"></span></div>
+      <div class="vs-ctrl p2"><b>P2</b><span data-i18n="vsCtrlP2"></span></div>
+    </div>
+    <p class="vs-rotate" data-i18n="vsRotate">📱 手機請橫過來玩</p>
+    <div class="btn-row">
+      <button id="versus-start" data-i18n="vsStart">開始對戰</button>
+      <button id="versus-back" class="alt" data-i18n="back">返回</button>
+    </div>
+  </div>
+
+  <div id="versus-over" class="screen hidden">
+    <h2 id="vs-winner"></h2>
+    <p id="vs-reason"></p>
+    <div id="vs-results"></div>
+    <div class="btn-row">
+      <button id="vs-again" data-i18n="vsAgain">再來一局</button>
+      <button id="vs-menu" class="alt" data-i18n="menu">主選單</button>
     </div>
   </div>
 

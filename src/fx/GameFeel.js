@@ -48,12 +48,14 @@ export class GameFeel {
 
   /** 顿帧：几乎冻结游戏时间（不是完全 0，爆炸会极慢地继续，画面更有张力） */
   hitStop(duration, scale = 0.03) {
+    if (this.versus) return; // 双人对战：一个人的顿帧/慢动作不能拖慢另一个人
     this.freezeT = Math.max(this.freezeT, duration);
     this.freezeScale = scale;
     this.recoverT = 0.12;
   }
 
   slowMo(scale, duration) {
+    if (this.versus) return;
     this.slowScale = Math.min(this.slowScale, scale);
     this.slowT = Math.max(this.slowT, duration);
   }

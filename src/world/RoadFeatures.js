@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Road, ROAD_HALF, laneOffset } from './Road.js';
+
+// 码头边缘（陆地和海面交界）前后不放道具和跳台
+const nearDock = (z, r) => Road.isWater(z - r) !== Road.isWater(z + r);
 import { mat, GEO } from '../models/Models.js';
 import { rand, randInt } from '../core/utils.js';
 import { t, onLangChange } from '../i18n.js';
@@ -172,7 +175,7 @@ export class RoadFeatures {
   }
 
   addStation(s) {
-    this.stations.push({ s, obj: this.makeGate(s, `🔧 ${t('station')}`, '#1f8fff', 0x2b2f36), used: false });
+    this.stations.push({ s, obj: this.makeGate(s, `🔧 ${t('station')}`, '#1f8fff', 0x2b2f36), used: [] }); // used[玩家编号]：每位玩家各自触发一次
   }
 
   setFinish(s) {
@@ -201,6 +204,7 @@ export class RoadFeatures {
 
   /** 路障生成时调用：有一定概率在被堵车道前放跳台，可以直接飞过去 */
   onBarricade(z, blocked) {
+    if (Road.isWater(z - 16)) return; // 海上没有跳台
     if (Math.random() < F.rampBeforeBarricade) this.addRamp(z - 16, blocked[randInt(0, blocked.length - 1)]);
   }
 
@@ -210,7 +214,7 @@ export class RoadFeatures {
 
   // ---------------------------------------------------------------- 每帧
   update(dt) {
-    const g = this.game, p = g.player, sp = g.spawner;
+    const g = this.game, p = g.leader, sp = g.spawner;
     const limit = sp.spawnLimit ?? Infinity;
 
     if (g.state === 'playing') {
@@ -218,7 +222,7 @@ export class RoadFeatures {
       const pz = p.z + 150;
       if (pz > this.nextPickupZ && this.nextPickupZ < limit) {
         const z = this.nextPickupZ;
-        if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 40) && !nearJunction(z)) {
+        if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 40) && !nearJunction(z) && !nearDock(z, 25)) {
           const kinds = Object.keys(PICKUPS);
           this.addPickup(z, randInt(0, LANES - 1), kinds[randInt(0, kinds.length - 1)]);
         }
@@ -227,7 +231,7 @@ export class RoadFeatures {
       // 普通跳台
       if (pz > this.nextRampZ && this.nextRampZ < limit) {
         const z = this.nextRampZ;
-        if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 60) && !nearJunction(z)) this.addRamp(z, randInt(0, LANES - 1));
+        if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 60) && !nearJunction(z) && !Road.isWater(z) && !nearDock(z, 40)) this.addRamp(z, randInt(0, LANES - 1));
         this.nextRampZ += rand(F.rampMinGap, F.rampMaxGap);
       }
       // 终点：路线生成到那里了才放
@@ -253,33 +257,39 @@ export class RoadFeatures {
       }
     }
 
-    // 改装站：开过大门就打开升级界面
+    // 改装站：开过大门就升级（单人：打开三选一界面；双人对战：自动升级，不暂停）
     for (const st of this.stations) {
-      if (!st.used && g.state === 'playing' && p.z >= st.s) {
-        st.used = true;
-        g.openUpgrade();
+      for (const pl of g.players) {
+        if (!st.used[pl.index] && g.state === 'playing' && pl.z >= st.s) {
+          st.used[pl.index] = true;
+          g.onStation(pl);
+        }
       }
     }
-    // 道具：浮动旋转 + 拾取
+    // 道具：浮动旋转 + 拾取（双人对战时谁先开到谁拿）
     for (const k of this.pickups) {
       k.phase += dt * 3;
       const w = Road.sample(k.s, k.lat);
-      k.obj.position.set(w.x, 1.6 + Math.sin(k.phase) * 0.3, w.z);
-      if (!k.taken && g.state === 'playing' && !p.airborne && Math.abs(p.z - k.s) < 2.6 && Math.abs(p.lateral - k.lat) < 1.6 + p.width * 0.35) {
-        k.taken = true;
-        k.obj.visible = false;
-        g.onPickup(k.kind, k.obj.position);
+      k.obj.position.set(w.x, Road.surfaceY(k.s) + 1.6 + Math.sin(k.phase) * 0.3, w.z);
+      for (const pl of g.players) {
+        if (!k.taken && g.state === 'playing' && !pl.airborne && Math.abs(pl.z - k.s) < 2.6 && Math.abs(pl.lateral - k.lat) < 1.6 + pl.width * 0.35) {
+          k.taken = true;
+          k.obj.visible = false;
+          g.onPickup(k.kind, k.obj.position, pl);
+        }
       }
     }
     // 跳台：开上斜面就起飞
     for (const r of this.ramps) {
-      if (g.state === 'playing' && !p.airborne && p.z > r.s + 1 && p.z < r.s + 5 && Math.abs(p.lateral - r.lat) < 1.6 + p.width * 0.3) {
-        if (p.jump(F.jumpPower)) g.onJump();
+      for (const pl of g.players) {
+        if (g.state === 'playing' && !pl.airborne && pl.z > r.s + 1 && pl.z < r.s + 5 && Math.abs(pl.lateral - r.lat) < 1.6 + pl.width * 0.3) {
+          if (pl.jump(F.jumpPower)) g.onJump(pl);
+        }
       }
     }
 
-    // 清理身后的
-    const behind = (o) => o.s < p.z - 60;
+    // 清理身后的（双人对战时以落后的玩家为准）
+    const behind = (o) => o.s < g.trailZ - 60;
     for (const list of [this.stations, this.pickups, this.ramps, this.arrows]) {
       for (let i = list.length - 1; i >= 0; i--) {
         if (behind(list[i])) { this.scene.remove(list[i].obj); list.splice(i, 1); }

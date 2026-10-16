@@ -4,6 +4,7 @@ import { laneOffset, nearestLane } from '../world/Road.js';
 import { classifyContact, pushApart } from '../systems/Collisions.js';
 import { Vehicle } from '../entities/Vehicle.js';
 import { makeCivilian, makeBarrier, makeCone } from '../models/Models.js';
+import { makeCivilianBoat, makeBuoy, makeFloatBarrier } from '../models/Boats.js';
 import { damp, rand } from '../core/utils.js';
 
 const LANES = CONFIG.road.lanes;
@@ -14,6 +15,10 @@ export class Civilian extends Vehicle {
     const mesh = makeCivilian();
     super(mesh, mesh.userData.dims.L, mesh.userData.dims.W);
     this.type = 'civilian';
+  }
+
+  makeBoat() {
+    return makeCivilianBoat(this.length, this.width);
   }
 
   spawnCivilian(scene, z, lane, speed) {
@@ -54,7 +59,7 @@ export class Civilian extends Vehicle {
     if (player.smashes) {
       this.knock(player, game, 1.2);
       if (!player.isDashing) player.ramImpact(1);
-      game.onPropSmashed(this, CONFIG.score.civilian);
+      game.onPropSmashed(this, CONFIG.score.civilian, player);
       return;
     }
     const c = classifyContact(player, this);
@@ -62,7 +67,7 @@ export class Civilian extends Vehicle {
       // 玩家追尾前车，或自己变道撞上 → 扣血
       player.hit(CONFIG.traffic.damage, c.type === 'side' ? -c.side * 0.6 : 0, 0.75);
       this.knock(player, game, 0.6);
-      game.onPropSmashed(this, CONFIG.score.civilian);
+      game.onPropSmashed(this, CONFIG.score.civilian, player);
     } else {
       // 民用车自己变道挤过来 → 不扣血，民用车放弃变道退回去
       player.bump(c.type === 'side' ? -c.side : 0, c.type === 'rear' ? CONFIG.bump.rearBoost : 0);
@@ -80,6 +85,11 @@ export class Obstacle extends Vehicle {
     this.type = kind;
   }
 
+  /** 海上：雪糕筒 → 浮标，路障 → 浮动路障 */
+  makeBoat() {
+    return this.type === 'cone' ? makeBuoy() : makeFloatBarrier();
+  }
+
   spawnStatic(scene, z, lateral) {
     this.spawn(scene, z, lateral, 0);
     this.mode = 'static';
@@ -93,7 +103,7 @@ export class Obstacle extends Vehicle {
     const dash = player.smashes;
     if (!dash && this.type === 'barrier') player.hit(CONFIG.barricade.damage * 0.5, 0, 0.7);
     this.knock(player, game, dash ? 1.3 : 0.9);
-    game.onPropSmashed(this, CONFIG.score.prop);
+    game.onPropSmashed(this, CONFIG.score.prop, player);
   }
 
   knock(by, game, s = 1) {

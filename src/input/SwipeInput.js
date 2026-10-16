@@ -19,7 +19,7 @@ export class SwipeInput {
 
     el.addEventListener('pointerdown', (e) => {
       this.active = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), fired: false };
-      el.setPointerCapture?.(e.pointerId);
+      try { el.setPointerCapture?.(e.pointerId); } catch { /* 指针已失效（例如系统手势抢走）时忽略 */ }
     });
     el.addEventListener('pointermove', (e) => {
       const a = this.active;

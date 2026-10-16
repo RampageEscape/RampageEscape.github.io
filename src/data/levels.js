@@ -11,6 +11,6 @@ export const LEVELS = [
   { id: 1, length: 1500, pool: ['city', 'forest'], startStars: 1, kills: 6 },
   { id: 2, length: 2100, pool: ['forest', 'city', 'desert'], startStars: 1, kills: 12 },
   { id: 3, length: 2700, pool: ['desert', 'coast', 'city'], startStars: 2, kills: 18 },
-  { id: 4, length: 3300, pool: ['coast', 'harbor', 'forest', 'desert'], startStars: 2, kills: 25 },
-  { id: 5, length: 4000, pool: ['harbor', 'city', 'desert', 'coast', 'forest'], startStars: 3, kills: 35 },
+  { id: 4, length: 3300, pool: ['coast', 'sea', 'harbor', 'forest', 'desert'], startStars: 2, kills: 25 },
+  { id: 5, length: 4000, pool: ['harbor', 'sea', 'city', 'desert', 'coast', 'forest'], startStars: 3, kills: 35 },
 ];

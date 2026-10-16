@@ -33,14 +33,16 @@ export function classifyContact(player, other) {
 }
 
 export function resolveCollisions(game) {
-  const { player, spawner } = game;
+  const { spawner } = game;
   const all = spawner.entities;
 
   // 玩家 vs 一切：具体结果由各实体的 onPlayerCollision 决定（会读取 player.collisionTag）
   // 从跳台飞起来的时候在空中，什么都撞不到
-  if (player.alive && !player.airborne) {
+  for (const player of game.players) {
+    if (!player.alive || player.airborne) continue;
     for (const e of all) if (e.collidable && overlaps(player, e)) e.onPlayerCollision(player, game);
   }
+  if (game.players.length > 1) resolvePlayers(game, game.players[0], game.players[1]);
 
   // 追捕中的警车 vs 其他：警车之间互相挤开，撞上别的东西就炸（玩家可以引诱警车撞车）
   for (const cop of spawner.police) {
@@ -52,6 +54,40 @@ export function resolveCollisions(game) {
       if (!cop.collidable) break;
     }
   }
+}
+
+/**
+ * 双人对战：两位玩家互撞。
+ *   一方冲刺/暴走、另一方没有 → 被撞的一方掉血、被撞开（可以用冲刺去撞对手！）
+ *   都没冲刺 → 谁主动变道撞过去谁吃亏一点点，主要是互相推开
+ */
+function resolvePlayers(game, a, b) {
+  if (!a.alive || !b.alive || a.airborne || b.airborne || !overlaps(a, b)) return;
+  const c = classifyContact(a, b);
+  const aSmash = a.isDashing || a.rampage > 0, bSmash = b.isDashing || b.rampage > 0;
+  if (aSmash !== bSmash) {
+    const [hitter, victim] = aSmash ? [a, b] : [b, a];
+    const dir = Math.sign(victim.lateral - hitter.lateral) || 1;
+    if (victim.hit(18, dir, 0.6)) game.onPlayerVsPlayer(hitter, victim);
+  } else if (c.type === 'side') {
+    a.bump(-c.side, 0);
+    b.bump(c.side, 0);
+  } else {
+    const [front, back] = c.type === 'front' ? [b, a] : [a, b];
+    front.bump(0, 4); // 被追尾的往前推一把
+    back.speed = Math.min(back.speed, front.speed - 2);
+  }
+  // 推开，避免下一帧重复判定
+  const half = (a.colW + b.colW) / 2 + 0.05, mid = (a.lateral + b.lateral) / 2;
+  if (c.type === 'side') {
+    a.lateral = mid - (c.side * half) / 2;
+    b.lateral = mid + (c.side * half) / 2;
+  } else if (c.type === 'front') {
+    a.z = b.z - (a.colL + b.colL) / 2 - 0.2;
+  } else {
+    b.z = a.z - (a.colL + b.colL) / 2 - 0.2;
+  }
+  game.fx.impact(a.mesh.position.clone().lerp(b.mesh.position, 0.5), 0.6);
 }
 
 /** 把对方推到刚好不和玩家重叠的位置，避免同一次碰撞每帧重复触发 */

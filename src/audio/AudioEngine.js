@@ -195,14 +195,14 @@ export class AudioEngine {
   update(s) {
     if (!this.ctx || this.paused) return;
     const t = this.ctx.currentTime, k = 0.08;
-    const base = s.heavy ? 38 : 55, f = base + s.speed01 * (s.heavy ? 70 : 150) + (s.dashing ? 40 : 0);
+    const base = s.heavy ? 38 : s.water ? 46 : 55, f = base + s.speed01 * (s.heavy ? 70 : 150) + (s.dashing ? 40 : 0);
     this.engA.frequency.setTargetAtTime(f, t, k);
     this.engB.frequency.setTargetAtTime(f / 2, t, k);
     this.engFilter.frequency.setTargetAtTime(500 + s.speed01 * 2200 + (s.dashing ? 1200 : 0), t, k);
     this.engGain.gain.setTargetAtTime(s.playing ? 0.022 + s.speed01 * 0.018 : 0.012, t, 0.15);
     this.sirenGain.gain.setTargetAtTime(s.siren * 0.045, t, 0.2);
     this.rotorGain.gain.setTargetAtTime(s.rotor * 0.5, t, 0.3);
-    this.windGain.gain.setTargetAtTime((s.speed01 * 0.03 + (s.dashing || s.rampage ? 0.09 : 0)) * (s.playing ? 1 : 0), t, 0.2);
+    this.windGain.gain.setTargetAtTime((s.speed01 * 0.03 + (s.water ? 0.03 : 0) + (s.dashing || s.rampage ? 0.09 : 0)) * (s.playing ? 1 : 0), t, 0.2); // 海上多一层水花声
     this.windFilter.frequency.setTargetAtTime(700 + s.speed01 * 1500, t, 0.2);
     this.screechGain.gain.setTargetAtTime(s.screech * 0.07, t, 0.05);
     this.intensity = s.rampage ? 2 : s.playing ? 1 : 0;
@@ -293,6 +293,32 @@ export class AudioEngine {
     const chord = big ? [60, 64, 67, 72, 76] : [62, 66, 69, 74];
     chord.forEach((n, i) => this.tone('sawtooth', NOTE(n), t + i * 0.04, 0.6, 0.12, out));
     this.tone('sine', 110, t, 0.6, 0.4, out, 220);
+  }
+
+  /** 落水 / 水上爆炸：低沉的“扑通” + 哗啦水声 + 几个气泡 */
+  splash(power = 1, vol = 1) {
+    if (!this.ctx || !this.sfxOn || vol < 0.05 || !this.gate('splash', 0.08)) return;
+    const ctx = this.ctx, t = ctx.currentTime, out = this.out(Math.min(1, vol * (0.5 + power * 0.3)));
+    const n = this.noiseSrc(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2600, t);
+    lp.frequency.exponentialRampToValueAtTime(280, t + 0.9);
+    this.env(g, t, 0.85, 0.01, 0.95);
+    n.connect(lp).connect(g).connect(out);
+    n.start(t);
+    n.stop(t + 1.2);
+    this.tone('sine', 170, t, 0.3, 0.35, out, 55);
+    for (let i = 0; i < 6; i++) this.tone('sine', 380 + Math.random() * 500, t + 0.12 + i * 0.07, 0.07, 0.07, out, 900 + Math.random() * 700);
+  }
+
+  /** 速度升级：引擎“轰”一声往上扫 + 明亮的上行琶音 */
+  speedUp() {
+    if (!this.ctx || !this.sfxOn) return;
+    const t = this.ctx.currentTime, out = this.out(0.55);
+    this.tone('sawtooth', 90, t, 0.7, 0.22, out, 420);
+    this.tone('sawtooth', 135, t, 0.7, 0.12, out, 630);
+    [0, 5, 7, 12, 17].forEach((iv, i) => this.tone('square', NOTE(67 + iv), t + 0.08 + i * 0.06, 0.16, 0.12, out));
+    this.whoosh(0, 0.7);
   }
 
   ui() {

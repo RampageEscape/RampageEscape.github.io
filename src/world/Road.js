@@ -8,6 +8,8 @@ const R = CONFIG.road;
 export const ROAD_HALF = (R.lanes * R.laneWidth) / 2;
 export const laneOffset = (i) => (i - (R.lanes - 1) / 2) * R.laneWidth;
 export const nearestLane = (lat) => clamp(Math.round(lat / R.laneWidth + (R.lanes - 1) / 2), 0, R.lanes - 1);
+/** 海上路段的水面高度（比路面低，码头边缘看得到落差）；船的吃水线在这个高度 */
+export const WATER_Y = -0.9;
 
 /**
  * 当前的主路线（玩家正在开的那条）。由 LevelManager 生成和切换。
@@ -25,5 +27,13 @@ export const Road = {
   },
   biomeAt(s) {
     return this.path.biomeAt(s);
+  },
+  /** 这一点是不是在海上（快艇路段） */
+  isWater(s) {
+    return this.path.biomeAt(s) === 'sea';
+  },
+  /** 地面 / 水面高度：爆炸焦痕、炸弹落点、道具高度用 */
+  surfaceY(s) {
+    return this.isWater(s) ? WATER_Y : 0;
   },
 };

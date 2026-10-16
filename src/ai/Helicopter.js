@@ -88,7 +88,7 @@ export class Helicopter {
   }
 
   enter() {
-    const g = this.game, p = g.player;
+    const g = this.game, p = (this.target = g.heliTarget());
     this.active = true;
     this.state = 'fight';
     this.hp = H.hp;
@@ -113,7 +113,7 @@ export class Helicopter {
   }
 
   /** 被主炮击中 */
-  damage(game) {
+  damage(game, by) {
     if (this.state !== 'fight') return;
     this.hp--;
     game.fx.explosion(this.mesh.position, 0.8);
@@ -122,12 +122,13 @@ export class Helicopter {
     this.state = 'down';
     this.fallVy = 0;
     game.fx.explosion(this.mesh.position, 2);
-    game.onHeliDown(this);
+    game.onHeliDown(this, by);
   }
 
   update(dt) {
     if (!this.active) return;
-    const g = this.game, p = g.player, u = this.u;
+    const g = this.game, u = this.u;
+    const p = this.target?.alive ? this.target : (this.target = g.heliTarget());
     u.rotor.rotation.y += dt * 28;
     u.tail.rotation.x += dt * 40;
     const on = Math.floor(performance.now() / 160) % 2 === 0;
@@ -180,12 +181,12 @@ export class Helicopter {
   }
 
   dropBomb() {
-    const g = this.game, p = g.player;
+    const g = this.game, p = this.target;
     // 瞄准玩家的预判位置；一直不换车道的玩家会被精准命中
     const camping = Math.abs(p.latVel) < 0.5;
     const tz = p.z + p.speed * H.bombFlight, tl = clamp(p.lateral + (camping ? rand(-0.4, 0.4) : rand(-1.4, 1.4)), -ROAD_HALF + 1, ROAD_HALF - 1);
     const w = Road.sample(tz, tl, {});
-    const to = new THREE.Vector3(w.x, 0, w.z);
+    const to = new THREE.Vector3(w.x, Road.surfaceY(tz), w.z);
     const mesh = new THREE.Mesh(this.bombGeo, this.bombMat);
     mesh.position.copy(this.mesh.position);
     g.scene.add(mesh);
@@ -207,8 +208,10 @@ export class Helicopter {
       this.bombs.splice(i, 1);
       g.fx.explosion(b.to, 0.9);
       g.feel.onBlast();
-      const p = g.player, pp = p.mesh.position;
-      if (!p.airborne && Math.hypot(pp.x - b.to.x, pp.z - b.to.z) < H.blastRadius + 1) p.hit(H.blastDamage, Math.sign(pp.x - b.to.x) || 1, 0.6);
+      for (const p of g.players) {
+        const pp = p.mesh.position;
+        if (!p.airborne && Math.hypot(pp.x - b.to.x, pp.z - b.to.z) < H.blastRadius + 1) p.hit(H.blastDamage, Math.sign(pp.x - b.to.x) || 1, 0.6);
+      }
       for (const c of g.spawner.police) {
         if (c.collidable && c.mesh.position.distanceTo(b.to) < H.blastRadius + 1) c.explode(g, null);
       }

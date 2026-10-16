@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ObjectPool } from './ObjectPool.js';
-import { Road } from '../world/Road.js';
+import { Road, WATER_Y } from '../world/Road.js';
 import { rand, pick } from '../core/utils.js';
 import { kitPart, DEBRIS } from '../models/ModelLibrary.js';
 import { ParticleLayer, StreakLayer, GLOW_TEX, SMOKE_TEX, RING_TEX, SCORCH_TEX } from './Particles.js';
@@ -33,6 +33,7 @@ export class Effects {
     this.glow = new ParticleLayer(scene, { capacity: 900, map: GLOW_TEX, additive: true });
     this.smoke = new ParticleLayer(scene, { capacity: 350, map: SMOKE_TEX, additive: false });
     this.streaks = new StreakLayer(scene, 300);
+    this.foam = new ParticleLayer(scene, { capacity: 900, map: SMOKE_TEX, additive: false }); // 海上：尾浪、水花
     this.jets = [];
     this.parts = [];
     this.decals = [];
@@ -65,7 +66,7 @@ export class Effects {
 
   /** 每帧由 main 调用：正交相机下每米多少像素，用来换算粒子大小 */
   setPixelScale(px, perspective = false) {
-    for (const layer of [this.glow, this.smoke]) {
+    for (const layer of [this.glow, this.smoke, this.foam]) {
       layer.mat.uniforms.uScale.value = px;
       layer.mat.uniforms.uPersp.value = perspective ? 1 : 0;
     }
@@ -102,7 +103,8 @@ export class Effects {
     const d = this.decalPools[type].get();
     if (!d) return;
     Object.assign(d, { type, kind, life, max: life, size });
-    d.mesh.position.set(pos.x, type === 'scorch' ? 0.07 : 0.1, pos.z);
+    const base = pos.y < -0.3 ? WATER_Y : 0; // 海上的贴花贴在水面上
+    d.mesh.position.set(pos.x, base + (type === 'scorch' ? 0.07 : 0.1), pos.z);
     d.mesh.rotation.y = rand(0, 6);
     d.mesh.material.color.set(color);
     d.mesh.visible = true;
@@ -121,15 +123,16 @@ export class Effects {
   /** 警车爆炸：闪光 → 火球 → 火焰柱 → 火花 → 余烬 → 浓烟柱，加冲击波、焦痕、飞出的零件 */
   explosion(pos, power = 1, carry = 0, heading = 0) {
     this.onExplosion?.(pos, power); // 声音
-    const c = v1.copy(pos);
-    c.y = Math.max(c.y, 0.8);
+    const water = pos.y < -0.3, c = v1.copy(pos);
+    c.y = Math.max(c.y, (water ? WATER_Y : 0) + 0.8);
+    if (water) this.splash(pos, power * 0.8, false);
     const kx = Math.sin(heading) * carry, kz = Math.cos(heading) * carry; // 沿道路前进方向的惯性
     const sp = Math.sqrt(power);
 
     this.glowDot(c, v2.set(0, 0, 0), 0.12, 4.5 * power, 0xffd9a0, 'flash');
     this.flashLight(c, power);
     this.decal('ring', c, 0.45, 9 * power, 0xffb070);
-    this.decal('scorch', c, 6, 3.2 * sp, 0xffffff);
+    if (!water) this.decal('scorch', c, 6, 3.2 * sp, 0xffffff); // 水面上不留焦痕
 
     // 火球：一团快速膨胀的高温火焰
     for (let i = 0; i < 11 * power; i++) {
@@ -159,8 +162,9 @@ export class Effects {
     for (let i = 0; i < 12 * power; i++) {
       randDir(v2, 1.2).multiplyScalar(rand(1, 3.5));
       v2.x += kx * 0.25; v2.z += kz * 0.25;
-      this.smokePuffAt(v1.set(c.x + rand(-1, 1), c.y + rand(0, 1), c.z + rand(-1, 1)), v2, rand(1.6, 2.8), rand(2.6, 4.2) * sp, rand(0.1, 0.2));
-      v1.copy(pos); v1.y = Math.max(v1.y, 0.8);
+      const cy = c.y;
+      this.smokePuffAt(v1.set(c.x + rand(-1, 1), cy + rand(0, 1), c.z + rand(-1, 1)), v2, rand(1.6, 2.8), rand(2.6, 4.2) * sp, rand(0.1, 0.2));
+      v1.copy(pos); v1.y = cy;
     }
     this.spawnParts(c, Math.round(2 + power * 2), kx, kz);
   }
@@ -176,6 +180,7 @@ export class Effects {
   }
 
   dust(pos) {
+    if (pos.y < -0.3) return this.splash(pos, 0.5);
     for (let i = 0; i < 5; i++) this.smokePuffAt(v1.set(pos.x, 0.3, pos.z), randDir(v2, 0.1).multiplyScalar(rand(2, 5)), rand(0.6, 1), rand(1.2, 2.2), 0.62, 0.15);
   }
 
@@ -199,6 +204,56 @@ export class Effects {
     for (const side of [-1, 1]) {
       v1.set(pos.x + bx + lx * side, pos.y + 0.55, pos.z + bz + lz * side);
       this.glowDot(v1, v2.set(0, 0.3, 0), rand(0.25, 0.4), rand(0.7, 1.0), side < 0 ? 0x46e6ff : 0xff4fd8, 'trail');
+    }
+  }
+
+  // ---------------------------------------------------------------- 海上
+  foamAt(x, y, z, vx, vy, vz, life, size, kind) {
+    return this.foam.add({ kind, x, y, z, vx, vy, vz, life, max: life, s0: size, s: size, r: 0.95, g: 0.97, b: 1, a: 0, rot: rand(0, 6), vr: rand(-0.6, 0.6), surf: WATER_Y + 0.06 });
+  }
+
+  /**
+   * 船尾浪 + 船头水花（每帧调用）。
+   *   两道白色尾浪从船尾两侧向外散开，速度越快喷得越多；中间一道螺旋桨翻起的白水；
+   *   高速时船头两侧溅起水花；冲刺时船尾喷起一道高高的“鸡尾”水柱。
+   */
+  wake(pos, heading, speed, width, length, dt, power = 1, boost = false) {
+    const fx = Math.sin(heading), fz = Math.cos(heading), lx = fz, lz = -fx;
+    const sx = pos.x - fx * length * 0.5, sz = pos.z - fz * length * 0.5;
+    const n = (k) => Math.floor(k * dt + Math.random());
+    const sy = WATER_Y + 0.06;
+    for (let i = n((4 + speed * 0.7) * power); i > 0; i--) {
+      const side = Math.random() < 0.5 ? -1 : 1, out = rand(1, 2.6);
+      this.foamAt(sx + lx * side * width * 0.42, sy, sz + lz * side * width * 0.42, lx * side * out - fx * 2, 0, lz * side * out - fz * 2, rand(1.6, 2.6), width * rand(0.45, 0.65), 'wake');
+    }
+    for (let i = n((3 + speed * 0.4) * power); i > 0; i--) {
+      this.foamAt(sx + rand(-0.3, 0.3), sy, sz + rand(-0.3, 0.3), -fx * rand(1, 3), 0, -fz * rand(1, 3), rand(0.9, 1.5), width * rand(0.55, 0.8), 'wake');
+    }
+    if (speed > 16) {
+      for (let i = n((speed - 14) * 0.9 * power); i > 0; i--) {
+        const side = Math.random() < 0.5 ? -1 : 1, bx = pos.x + fx * length * 0.3 + lx * side * width * 0.5, bz = pos.z + fz * length * 0.3 + lz * side * width * 0.5;
+        this.foamAt(bx, sy + 0.2, bz, lx * side * rand(2, 4) + fx * speed * 0.4, rand(2, 4), lz * side * rand(2, 4) + fz * speed * 0.4, rand(0.45, 0.7), rand(0.5, 0.8), 'spray');
+      }
+    }
+    if (boost) {
+      for (let i = n(40); i > 0; i--) {
+        this.foamAt(sx, sy + 0.4, sz, -fx * rand(3, 8) + rand(-1, 1), rand(5, 9), -fz * rand(3, 8) + rand(-1, 1), rand(0.6, 0.9), rand(0.7, 1.1), 'spray');
+      }
+    }
+  }
+
+  /** 大水花：落水、残骸沉没、水上爆炸 */
+  splash(pos, power = 1, sound = true) {
+    if (sound) this.onSplash?.(pos, power);
+    const y = WATER_Y + 0.06;
+    this.decal('ring', v2.set(pos.x, WATER_Y, pos.z), 0.7, 7 * power, 0xe8f6ff);
+    for (let i = 0; i < 34 * power; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(2, 7) * power;
+      this.foamAt(pos.x, y + 0.3, pos.z, Math.cos(a) * r, rand(5, 12) * Math.sqrt(power), Math.sin(a) * r, rand(0.7, 1.2), rand(0.7, 1.3) * Math.sqrt(power), 'spray');
+    }
+    for (let i = 0; i < 18 * power; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(1.5, 4);
+      this.foamAt(pos.x + Math.cos(a), y, pos.z + Math.sin(a), Math.cos(a) * r, 0, Math.sin(a) * r, rand(1.5, 2.5), rand(1.2, 2.2) * power, 'wake');
     }
   }
 
@@ -232,6 +287,7 @@ export class Effects {
     this.updateGlow(dt);
     this.updateSmoke(dt);
     this.updateStreaks(dt);
+    this.updateFoam(dt);
     this.updateDecals(dt);
     for (const l of this.lights) {
       if (l.intensity <= 0) continue;
@@ -336,6 +392,31 @@ export class Effects {
       p.rot += p.vr * dt;
     }
     this.smoke.flush();
+  }
+
+  updateFoam(dt) {
+    const list = this.foam.list;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      p.life -= dt;
+      if (p.life <= 0 || (p.kind === 'spray' && p.y < p.surf - 0.3)) { list[i] = list[list.length - 1]; list.pop(); continue; }
+      const t = 1 - p.life / p.max;
+      if (p.kind === 'spray') {
+        p.vy -= 16 * dt;
+        p.s = p.s0 * (0.6 + 1.2 * t);
+        p.a = Math.min(1, t * 8) * 0.85 * (1 - t);
+      } else {
+        // 尾浪：贴着水面慢慢散开、变淡
+        const k = Math.exp(-1.2 * dt);
+        p.vx *= k; p.vz *= k;
+        p.y = p.surf;
+        p.s = p.s0 * (1 + 2.2 * Math.sqrt(t));
+        p.a = Math.min(1, t * 10) * 0.62 * (1 - t) ** 1.4;
+      }
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.rot += p.vr * dt;
+    }
+    this.foam.flush();
   }
 
   updateStreaks(dt) {

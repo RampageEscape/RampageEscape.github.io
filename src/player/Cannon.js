@@ -14,8 +14,9 @@ const ZERO = new THREE.Vector3();
  *  - 冷却和爆炸范围可以在改装站升级
  */
 export class Cannon {
-  constructor(game) {
+  constructor(game, player) {
     this.game = game;
+    this.player = player; // 双人对战时每位玩家一门炮
     this.shells = [];
     this.cooldown = 0;
     this.target = null;
@@ -30,8 +31,8 @@ export class Cannon {
     this.target = null;
   }
 
-  get active() { return !!this.game.player.tier.cannon; }
-  get charge() { return 1 - this.cooldown / this.game.player.stats.cannonCooldown; }
+  get active() { return !!this.player.tier.cannon; }
+  get charge() { return 1 - this.cooldown / this.player.stats.cannonCooldown; }
 
   findTarget(p) {
     const pp = p.mesh.position, sp = this.game.spawner;
@@ -50,7 +51,7 @@ export class Cannon {
   }
 
   update(dt) {
-    const p = this.game.player, fx = this.game.fx;
+    const p = this.player, fx = this.game.fx;
     this.cooldown = Math.max(0, this.cooldown - dt);
     if (this.active && p.turret) {
       this.target = this.findTarget(p);
@@ -79,7 +80,7 @@ export class Cannon {
   }
 
   fire() {
-    const g = this.game, p = g.player;
+    const g = this.game, p = this.player;
     if (!this.active || this.cooldown > 0 || !p.alive || !p.muzzle) return false;
     this.cooldown = p.stats.cannonCooldown;
     p.muzzle.updateWorldMatrix(true, false);
@@ -110,7 +111,7 @@ export class Cannon {
   }
 
   detonate(pos) {
-    const g = this.game, p = g.player, R = p.stats.cannonRadius;
+    const g = this.game, p = this.player, R = p.stats.cannonRadius;
     g.fx.explosion(pos, 1.1);
     g.feel.shake.add(0.25);
     const near = (e, extra = 1) => e.collidable && e.mesh.position.distanceTo(pos) < R + extra;
@@ -119,6 +120,6 @@ export class Cannon {
     for (const c of g.spawner.traffic) if (near(c)) c.knock(p, g, 0.8);
     for (const o of g.spawner.obstacles) if (near(o)) o.knock(p, g, 1);
     const heli = g.spawner.heli;
-    if (heli.collidable && heli.mesh.position.distanceTo(pos) < R + 3) heli.damage(g);
+    if (heli.collidable && heli.mesh.position.distanceTo(pos) < R + 3) heli.damage(g, p);
   }
 }

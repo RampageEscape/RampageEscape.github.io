@@ -6,6 +6,7 @@ import { rand } from '../core/utils.js';
 
 const L = CONFIG.world.chunkLength;
 const J = CONFIG.junction;
+const SEA = CONFIG.sea;
 const QUARTER = Math.PI / 2, EIGHTH = Math.PI / 4;
 const LANES = CONFIG.road.lanes;
 const ORDER = ['left', 'forkLeft', 'straight', 'forkRight', 'right'];
@@ -79,19 +80,28 @@ export class LevelManager {
     const id = this.nextId++;
     const options = keys.map((key, k) => {
       const biome = biomes[k], turn = EXITS[key].turn, p = main.clone();
+      const land = biome === 'sea' ? 'harbor' : biome; // 海上路线：路口本身和码头在陆地上
       let boxLen;
       if (key === 'straight') {
-        p.addLine(2 * J.box, biome, { wiggleOn: false });
+        p.addLine(2 * J.box, land, { wiggleOn: false });
         boxLen = 2 * J.box;
       } else if (key === 'left' || key === 'right') {
-        p.addArc(turn, J.box, biome); // 圆心在路口方框的角上，正好在方框内转 90°
+        p.addArc(turn, J.box, land); // 圆心在路口方框的角上，正好在方框内转 90°
         boxLen = QUARTER * J.box;
       } else {
-        p.addArc(turn, J.forkRadius, biome);
+        p.addArc(turn, J.forkRadius, land);
         boxLen = EIGHTH * J.forkRadius + J.forkClear; // Y 型分叉：两条路完全分开前都算路口区域
       }
-      const target = Math.ceil((p.length + rand(J.minGap, J.maxGap)) / L) * L;
-      p.addLine(target - p.length, biome);
+      if (biome === 'sea') {
+        // 码头（尽头是下水跳台）→ 海上 → 对岸码头（滑道上岸）→ 下一个路口。都对齐到区块边界，方便画码头边缘
+        const dockEnd = Math.ceil((p.length + SEA.dock) / L) * L;
+        p.addLine(dockEnd - p.length, 'harbor', { wiggleOn: false });
+        p.addLine(Math.round(SEA.length / L) * L, 'sea');
+        p.addLine(Math.ceil(SEA.landing / L) * L, 'harbor', { wiggleOn: false });
+      } else {
+        const target = Math.ceil((p.length + rand(J.minGap, J.maxGap)) / L) * L;
+        p.addLine(target - p.length, biome);
+      }
       p.junctions.push({ id, sEntry: e.s, boxLen, type });
       // 采样这条出口的路面，地图生成器用来避免把树、楼放到别的岔路上
       const samples = [];
@@ -150,11 +160,13 @@ export class LevelManager {
     j.manualLane = lane;
   }
 
-  update(playerS) {
+  /** leadS：领先玩家的位置（到路口就提交选择）；trailS：落后玩家的位置（身后的路段按它来清理） */
+  update(leadS, trailS = leadS) {
     const j = this.junction;
-    if (j && !j.committed && playerS >= j.sEntry - J.commitBefore) this.commit();
-    Road.path.trimBefore(playerS - 400);
-    this.history = this.history.filter((h) => playerS < h.sEntry + J.keepAfter);
+    this.trailS = trailS;
+    if (j && !j.committed && leadS >= j.sEntry - J.commitBefore) this.commit();
+    Road.path.trimBefore(trailS - 400);
+    this.history = this.history.filter((h) => trailS < h.sEntry + J.keepAfter);
   }
 
   /** 提交选择：选中的候选路线成为主路线，并马上生成下一个路口 */
@@ -163,7 +175,7 @@ export class LevelManager {
     j.committed = true;
     j.chosen = j.selected;
     Road.path = j.options[j.chosen].path;
-    Road.path.trimBefore(j.sEntry - 400); // 先裁掉旧路段，否则下一批候选路线会复制整段历史
+    Road.path.trimBefore(Math.min(j.sEntry, this.trailS ?? j.sEntry) - 400); // 先裁掉旧路段，否则下一批候选路线会复制整段历史
     this.history.push(j);
     this.onCommit?.(j);
     this.createJunction();

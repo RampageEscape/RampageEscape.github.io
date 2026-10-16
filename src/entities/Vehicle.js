@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Road } from '../world/Road.js';
+import { Road, WATER_Y } from '../world/Road.js';
 import { rand } from '../core/utils.js';
 import { spinWheels } from '../models/ModelLibrary.js';
 
@@ -20,9 +20,36 @@ export class Vehicle {
     this.alive = false;
     this.state = 'drive';
     this.wreck = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), t: 0 };
+    this.bobPhase = rand(0, 6.28);
+  }
+
+  /** 海上用的船模型（子类覆盖；返回 null 表示没有船的版本，例如坦克） */
+  makeBoat() {
+    return null;
+  }
+
+  /**
+   * 上船 / 下船：在陆地模型和船模型之间切换（同一个实体、同样的碰撞尺寸和 AI，只换外观）。
+   * 船模型第一次用到时才创建，之后一直留着复用。
+   */
+  setWater(on) {
+    if (on === !!this.onWater) return;
+    if (on && !this.boatMesh) this.boatMesh = this.makeBoat();
+    if (on && !this.boatMesh) return;
+    this.carMesh ??= this.mesh;
+    this.onWater = on;
+    const next = on ? this.boatMesh : this.carMesh, parent = this.mesh.parent;
+    next.position.copy(this.mesh.position);
+    next.rotation.copy(this.mesh.rotation);
+    next.visible = this.mesh.visible;
+    parent?.remove(this.mesh);
+    this.mesh = next;
+    this.root = next.userData.root;
+    parent?.add(next);
   }
 
   spawn(scene, z, lateral, speed) {
+    this.setWater(false); // 对象池里拿出来的可能还是船，先换回陆地模型
     this.z = z;
     this.lateral = lateral;
     this.speed = speed;
@@ -35,7 +62,7 @@ export class Vehicle {
     this.removeMe = false;
     this.burning = false;
     this.wheelZ = z;
-    this.nmSide = undefined; // 擦边检测用：上一帧在玩家前面还是后面
+    this.nmSides = []; // 擦边检测用：上一帧在每位玩家的前面还是后面
     this.mesh.rotation.set(0, 0, 0);
     this.root?.rotation.set(0, 0, 0);
     this.mesh.visible = true;
@@ -53,10 +80,22 @@ export class Vehicle {
   }
 
   sync() {
+    const water = Road.isWater(this.z);
+    if (water !== !!this.onWater) this.setWater(water);
     const w = Road.sample(this.z, this.lateral, SAMPLE);
     spinWheels(this.mesh, this.z - (this.wheelZ ?? this.z));
     this.wheelZ = this.z;
-    this.mesh.position.set(w.x, 0, w.z);
+    let y = 0;
+    if (this.onWater) {
+      // 船在浪里上下起伏、左右摇晃；开得快船头微微抬起
+      const t = performance.now() * 0.001 + this.bobPhase;
+      y = WATER_Y - 0.12 + Math.sin(t * 2.1) * 0.07;
+      if (this.root) {
+        this.root.rotation.z = Math.sin(t * 1.6) * 0.045;
+        this.root.rotation.x = -Math.min(0.08, this.speed * 0.003) + Math.sin(t * 2.3 + 1) * 0.025;
+      }
+    }
+    this.mesh.position.set(w.x, y, w.z);
     this.mesh.rotation.y = w.h + this.yawOffset;
   }
 
@@ -71,6 +110,7 @@ export class Vehicle {
     this.wreck.vel.copy(vel).applyAxisAngle(UP, Road.heading(this.z));
     this.wreck.spin.copy(spin);
     this.wreck.t = 0;
+    this.wreck.splashed = false;
   }
 
   updateWreck(dt, fx) {
@@ -78,7 +118,15 @@ export class Vehicle {
     w.t += dt;
     w.vel.y -= GRAVITY * dt;
     w.pos.addScaledVector(w.vel, dt);
-    if (w.pos.y < 0) {
+    if (this.onWater && w.pos.y < WATER_Y) {
+      // 海上：砸进水里溅起水花，然后慢慢沉下去
+      if (!w.splashed) { w.splashed = true; fx.splash?.(w.pos, 1); }
+      w.vel.y = -1.6;
+      const f = Math.exp(-4 * dt);
+      w.vel.x *= f;
+      w.vel.z *= f;
+      w.spin.multiplyScalar(f);
+    } else if (w.pos.y < 0 && !this.onWater) {
       w.pos.y = 0;
       if (w.vel.y < -5) {
         w.vel.y *= -0.35; // 落地弹跳

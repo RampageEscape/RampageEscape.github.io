@@ -202,7 +202,7 @@ export async function loadHero(renderer) {
   loader.setKTX2Loader(new KTX2Loader().setTranscoderPath('vendor/addons/libs/basis/').detectSupport(renderer));
   const gltf = await loader.loadAsync('assets/hero/CarConcept.gltf');
   const variants = (gltf.userData.gltfExtensions?.KHR_materials_variants?.variants ?? []).map((v) => v.name);
-  for (const [key, variant] of [['hero-red', 'Carmine Candy'], ['hero-graphite', 'Torched Graphite']]) {
+  for (const [key, variant] of [['hero-red', 'Carmine Candy'], ['hero-graphite', 'Torched Graphite'], ['hero-pearl', 'Pearly Swirly']]) {
     const copy = gltf.scene.clone(true);
     const idx = variants.indexOf(variant);
     if (idx >= 0) await applyVariant(copy, gltf.parser, idx);

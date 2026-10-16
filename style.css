@@ -14,6 +14,9 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 }
 #score { font-size: 30px; text-shadow: 0 2px 0 #000, 0 0 12px rgba(0,0,0,.4); }
 #distance { font-size: 14px; opacity: .85; text-shadow: 0 1px 0 #000; }
+#speed-lv { display: inline-block; margin-top: 3px; font-size: 13px; font-weight: 700; color: #7ff3ff; text-shadow: 0 1px 0 #000, 0 0 8px rgba(70,230,255,.6); }
+#speed-lv.bump { animation: lv-bump .6s ease-out; }
+@keyframes lv-bump { 0% { transform: scale(1.8); color: #fff; } 100% { transform: scale(1); } }
 .hud-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 #stars { font-size: 20px; color: #ffd23f; letter-spacing: 2px; text-shadow: 0 2px 0 #000; }
 .bar { width: 130px; height: 10px; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.8); border-radius: 6px; overflow: hidden; }
@@ -253,3 +256,64 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .modal-card ol { margin: 0 0 18px; padding-left: 22px; line-height: 1.6; font-size: 15px; }
 .modal-card li { margin-bottom: 6px; }
 .modal-card button { display: block; width: 100%; }
+
+/* ---------------- 双人对战 ---------------- */
+.screen button.versus-btn {
+  margin-top: 14px; background: linear-gradient(90deg, #16b8e8, #7a4dff 50%, #ff8a1f);
+  box-shadow: 0 5px 0 #3a1f7a, 0 10px 24px rgba(122,77,255,.45);
+}
+.screen button.versus-btn:active { box-shadow: 0 2px 0 #3a1f7a; }
+#vs-hud { position: fixed; inset: 0; pointer-events: none; }
+.vs-divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 4px; margin-left: -2px; background: linear-gradient(180deg, #16b8e8, #ff8a1f); box-shadow: 0 0 12px rgba(0,0,0,.6); }
+.vs-panel { position: absolute; top: calc(env(safe-area-inset-top) + 10px); left: 14px; display: flex; flex-direction: column; gap: 5px; }
+.vs-panel.right { left: calc(50% + 14px); }
+.vs-head { display: flex; align-items: center; gap: 8px; }
+.vs-tag { font-size: 14px; padding: 2px 8px; border-radius: 8px; color: #fff; }
+.vs-tag.p1 { background: #16b8e8; }
+.vs-tag.p2 { background: #ff8a1f; }
+.vs-score { font-size: 24px; text-shadow: 0 2px 0 #000; }
+.vs-meta { font-size: 12px; opacity: .9; text-shadow: 0 1px 0 #000; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; font-weight: 700; }
+.vs-panel .bar { width: 120px; }
+.vs-shields { font-size: 13px; min-height: 14px; }
+#vs-pause {
+  position: absolute; top: calc(env(safe-area-inset-top) + 10px); left: 50%; transform: translateX(-50%);
+  width: 40px; height: 40px; border-radius: 50%; border: 2px solid rgba(255,255,255,.8); background: rgba(0,0,0,.5);
+  color: #fff; font-size: 14px; pointer-events: auto; cursor: pointer;
+}
+.vs-dash, .vs-fire {
+  --charge: 1;
+  position: absolute; bottom: calc(env(safe-area-inset-bottom) + 18px); width: 78px; height: 78px; border-radius: 50%; border: none; padding: 5px;
+  pointer-events: auto; touch-action: none; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.45);
+  background: conic-gradient(var(--c) calc(var(--charge) * 360deg), rgba(255,255,255,.18) 0);
+}
+.vs-dash.left { left: 18px; --c: #16b8e8; }
+.vs-dash.right { right: 18px; --c: #ff8a1f; }
+.vs-fire.left { left: 104px; --c: #ffd23a; }
+.vs-fire.right { right: 104px; --c: #ffd23a; }
+.vs-dash span, .vs-fire span {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%;
+  background: #2a2d34; color: #888; font-size: 15px; font-family: inherit;
+}
+.vs-dash.ready span { background: radial-gradient(circle at 40% 35%, #fff6, var(--c)); color: #fff; }
+.vs-dash.active span { background: radial-gradient(circle, #fff, var(--c)); color: #fff; }
+.vs-fire.ready span { background: radial-gradient(circle at 40% 35%, #ffe28a, #e8a00f); color: #2a1a00; }
+#countdown {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  font-size: 120px; color: #fff; text-shadow: 0 6px 0 #000, 0 0 40px rgba(255,140,0,.7);
+}
+#countdown.pop { animation: cd-pop .9s ease-out; }
+@keyframes cd-pop { 0% { transform: scale(2.2); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 100% { transform: scale(.85); opacity: 0; } }
+.vs-rules { text-align: left; max-width: 520px; margin: 4px 0 14px; padding-left: 22px; line-height: 1.7; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; font-size: 15px; }
+.vs-controls { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
+.vs-ctrl { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; border-radius: 14px; background: rgba(255,255,255,.08); min-width: 220px; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; font-size: 14px; line-height: 1.5; }
+.vs-ctrl.p1 { border: 2px solid #16b8e8; }
+.vs-ctrl.p2 { border: 2px solid #ff8a1f; }
+.vs-ctrl b { font-size: 18px; }
+.vs-rotate { color: #ffd23a; font-size: 15px; display: none; }
+@media (orientation: portrait) and (max-width: 700px) { .vs-rotate { display: block; } }
+#vs-winner { font-size: 40px; margin-bottom: 4px; }
+#vs-reason { opacity: .85; margin: 0 0 14px; }
+#vs-results { display: flex; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; justify-content: center; }
+.vs-res { padding: 12px 18px; border-radius: 14px; background: rgba(255,255,255,.08); min-width: 170px; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; line-height: 1.6; }
+.vs-res.win { background: rgba(255,210,58,.18); border: 2px solid #ffd23a; }
+.vs-res b { font-size: 20px; }

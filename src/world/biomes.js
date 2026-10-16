@@ -14,6 +14,8 @@ export const BIOMES = {
   harbor: { curve: 0, tanks: true, sky: 0xc9cdd2, ground: 0x8d9096 },
   // 夜晚地图：天光很暗，靠霓虹灯带、发光窗户和 Bloom 照亮
   neon: { curve: 0.3, tanks: true, sky: 0x0b0820, ground: 0x15121f, night: true },
+  // 海上追逐：从码头冲下水变成快艇，到对岸码头再变回汽车（water：水面路段，没有坦克）
+  sea: { curve: 0.45, tanks: false, sky: 0xbfe0ee, ground: 0x1d5f86, water: true },
 };
 
 export const BIOME_IDS = Object.keys(BIOMES);

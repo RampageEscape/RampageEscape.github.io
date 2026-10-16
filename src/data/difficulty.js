@@ -23,7 +23,7 @@ export const DIFFICULTIES = {
 export const DIFFICULTY_IDS = Object.keys(DIFFICULTIES);
 
 /** 这一局正在用的难度（startRun 时设置，各系统直接读取） */
-export const RUN = { id: 'normal', diff: DIFFICULTIES.normal };
+export const RUN = { id: 'normal', diff: DIFFICULTIES.normal, pace: 1 }; // pace：当前速度倍率（速度分级，由 Game 每帧更新）
 export function setDifficulty(id) {
   RUN.id = DIFFICULTIES[id] ? id : 'normal';
   RUN.diff = DIFFICULTIES[RUN.id];

@@ -69,6 +69,13 @@ export const CONFIG = {
     clearTraffic: [-40, 15], // 生成时清掉这段范围内的民用车，保证安全通道真的畅通
   },
 
+  // 海上路段：码头 dock 米 → 下水 → 海上 length 米 → 上岸 → 码头 landing 米 → 下一个路口
+  sea: { dock: 280, length: 720, landing: 240, launchPower: 14, landPower: 11 },
+  // 速度分级：开局慢，分数每突破一个门槛升一级，整体速度（玩家、警车、车流）按 pace 倍率慢慢加快
+  pace: {
+    start: 0.62, step: 0.07, max: 1.25,
+    scores: [0, 800, 2000, 3600, 5600, 8000, 11000, 14500, 18500, 23000], // 第 n 级需要的分数
+  },
   spawn: { policeBase: 2, policePerStar: 1, policeMax: 8, trafficCount: 9, starDistance: 450, maxStars: 5 },
   score: { perMeter: 1, police: 300, swat: 600, tank: 1500, civilian: 50, prop: 20, comboWindow: 2.5 },
 };

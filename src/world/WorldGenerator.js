@@ -200,14 +200,16 @@ export class WorldGenerator {
     }
   }
 
-  update(playerS) {
+  /** leadS / trailS：两位玩家里领先 / 落后的位置（单人时相同），区块覆盖两人之间的整段路 */
+  update(leadS, trailS = leadS) {
     const { chunksAhead, chunksBehind } = CONFIG.world;
-    const cur = Math.floor(playerS / L);
+    const cur = Math.floor(leadS / L), back = Math.floor(trailS / L);
+    const playerS = leadS;
     const j = this.levels.junction;
     const pendingK = j && !j.committed ? Math.round(j.sEntry / L) : Infinity;
     const wanted = new Set();
 
-    for (let i = cur - chunksBehind; i <= cur + chunksAhead; i++) {
+    for (let i = back - chunksBehind; i <= cur + chunksAhead; i++) {
       if (i < pendingK) {
         const key = `m:${i}`;
         wanted.add(key);
@@ -225,7 +227,7 @@ export class WorldGenerator {
       if (!wanted.has(key)) { this.dispose(c.group); this.chunks.delete(key); }
     }
     this.orphans = this.orphans.filter((o) => {
-      if (playerS < o.until) return true;
+      if (trailS < o.until) return true;
       this.dispose(o.group);
       return false;
     });
@@ -233,12 +235,12 @@ export class WorldGenerator {
     // 路口路面：进入视野范围就建，开远了就清
     const active = this.levels.activeJunctions;
     for (const jn of active) {
-      const near = jn.sEntry - playerS < (chunksAhead + 1) * L && playerS < jn.sEntry + J.keepAfter;
+      const near = jn.sEntry - playerS < (chunksAhead + 1) * L && trailS < jn.sEntry + J.keepAfter;
       if (near && !this.pads.has(jn.id)) this.pads.set(jn.id, this.buildPad(jn));
     }
     for (const [id, g] of this.pads) {
       const jn = active.find((x) => x.id === id);
-      if (!jn || playerS >= jn.sEntry + J.keepAfter) { this.dispose(g); this.pads.delete(id); }
+      if (!jn || trailS >= jn.sEntry + J.keepAfter) { this.dispose(g); this.pads.delete(id); }
     }
   }
 

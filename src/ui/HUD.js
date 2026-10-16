@@ -22,8 +22,17 @@ export class HUD {
       coins: $('coins'), missions: $('missions'), fever: $('fever-fill'), rampageFx: $('rampage-fx'),
       garage: $('garage'), garageGrid: $('garage-grid'), garageCoins: $('garage-coins'), titleCoins: $('title-coins'),
       cCoins: $('complete-coins'), overCoins: $('over-coins'),
-      pause: $('pause'), diffRow: $('difficulty-row'),
+      pause: $('pause'), diffRow: $('difficulty-row'), speedLv: $('speed-lv'),
+      vsHud: $('vs-hud'), countdown: $('countdown'), versusSetup: $('versus-setup'), versusOver: $('versus-over'),
+      vsWinner: $('vs-winner'), vsReason: $('vs-reason'), vsResults: $('vs-results'),
+      vsDash: [$('vs-dash-0'), $('vs-dash-1')], vsFire: [$('vs-fire-0'), $('vs-fire-1')],
     };
+    // 双人对战：左右两块面板
+    this.vsPanels = [0, 1].map((i) => {
+      const root = $('vs-p' + i), q = (c) => root.querySelector(c);
+      return { score: q('.vs-score'), meta: q('.vs-meta'), hp: q('.vs-hp'), bust: q('.vs-bust'), shields: q('.vs-shields') };
+    });
+    this.versus = false;
     const on = (id, fn) => $(id).addEventListener('click', fn);
     on('mode-levels', () => this.onOpenLevels?.());
     on('mode-endless', () => this.onEndless?.());
@@ -49,6 +58,14 @@ export class HUD {
     on('pause-music', () => { this.onToggleMusic?.(); this.renderPause(); });
     on('pause-sfx', () => { this.onToggleSfx?.(); this.renderPause(); });
     on('pause-camera', () => { this.onToggleCamera?.(); this.renderPause(); });
+    on('mode-versus', () => this.setScreen('versusSetup'));
+    on('versus-start', () => this.onStartVersus?.());
+    on('versus-back', () => this.showTitle());
+    on('vs-again', () => this.onVersusAgain?.());
+    on('vs-menu', () => this.onMenu?.());
+    press($('vs-pause'), () => this.onPause?.());
+    this.el.vsDash.forEach((b, i) => press(b, () => this.onVsDash?.(i)));
+    this.el.vsFire.forEach((b, i) => press(b, () => this.onVsFire?.(i)));
     this.el.lang.addEventListener('click', () => toggleLang());
     this.lastStars = -1;
     this.bannerTimer = 0;
@@ -67,8 +84,10 @@ export class HUD {
       if (this.screen === 'garage') this.renderGarage();
       if (this.screen === 'title') this.showTitle();
       if (this.screen === 'pause') this.renderPause();
+      if (this.screen === 'versusOver') this.renderVersusOver();
       if (this.missionList) this.showMissions(this.missionList);
       this.lastDistance = -1;
+      this.lastLv = -1;
       this.jnKey = null;
     });
   }
@@ -76,10 +95,12 @@ export class HUD {
   /** 只显示一个全屏界面（null = 都不显示，正在游戏） */
   setScreen(name) {
     this.screen = name;
-    for (const k of ['title', 'levels', 'upgrade', 'complete', 'over', 'garage', 'pause']) this.el[k].classList.toggle('hidden', k !== name);
-    this.el.hud.classList.toggle('hidden', !(name === null || name === 'upgrade' || name === 'pause'));
+    for (const k of ['title', 'levels', 'upgrade', 'complete', 'over', 'garage', 'pause', 'versusSetup', 'versusOver']) this.el[k].classList.toggle('hidden', k !== name);
+    const inGame = name === null || name === 'upgrade' || name === 'pause';
+    this.el.hud.classList.toggle('hidden', !inGame || this.versus);
+    this.el.vsHud.classList.toggle('hidden', !inGame || !this.versus);
     // 语言按钮只在菜单类界面显示，游戏中隐藏避免误触
-    this.el.lang.classList.toggle('hidden', !['title', 'levels', 'complete', 'over', 'garage'].includes(name));
+    this.el.lang.classList.toggle('hidden', !['title', 'levels', 'complete', 'over', 'garage', 'versusSetup', 'versusOver'].includes(name));
     if (name !== null) this.setRampage(false);
   }
 
@@ -112,6 +133,7 @@ export class HUD {
 
   renderPause() {
     const s = this.settings?.() ?? {};
+    $('pause-camera').classList.toggle('hidden', this.versus); // 双人对战固定用追尾分屏
     $('pause-music').textContent = t(s.music === false ? 'musicOff' : 'musicOn');
     $('pause-sfx').textContent = t(s.sfx === false ? 'sfxOff' : 'sfxOn');
     $('pause-camera').textContent = t(s.camera === 'chase' ? 'camChase' : 'camIso');
@@ -189,6 +211,7 @@ export class HUD {
     this.setScreen(null);
     this.lastStars = -1;
     this.lastDistance = -1;
+    this.lastLv = -1;
     this.overData = null;
     this.showRoadblock(null);
     this.el.junction.classList.add('hidden');
@@ -251,9 +274,17 @@ export class HUD {
       this.el.banner.classList.remove('show');
       this.bannerKey = null;
     }
+    if (this.versus) return this.updateVersus(game);
     if (game.state !== 'playing') return;
     const p = game.player, el = this.el;
     el.score.textContent = Math.floor(game.score).toLocaleString();
+    if (game.speedLevel !== this.lastLv) {
+      this.lastLv = game.speedLevel;
+      el.speedLv.textContent = t('speedLv', { n: game.speedLevel });
+      el.speedLv.classList.remove('bump');
+      void el.speedLv.offsetWidth;
+      el.speedLv.classList.add('bump');
+    }
     const d = Math.floor(game.distance);
     if (d !== this.lastDistance) {
       this.lastDistance = d;
@@ -337,19 +368,77 @@ export class HUD {
     }
   }
 
-  popup(text, worldPos, camera, big = false) {
+  // ---------------- 双人对战 ----------------
+  setVersus(on) {
+    this.versus = on;
+  }
+
+  /** 每帧刷新左右两块面板 */
+  updateVersus(game) {
+    if (!game.players[1]) return;
+    game.players.forEach((p, i) => {
+      const el = this.vsPanels[i];
+      el.score.textContent = Math.floor(p.score).toLocaleString();
+      el.meta.textContent = t('vsMeta', { d: Math.floor(p.distance), n: game.speedLevel });
+      el.hp.style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
+      el.bust.style.width = `${p.bust * 100}%`;
+      el.bust.parentElement.classList.toggle('active', p.bust > 0.01);
+      el.shields.textContent = '🛡️'.repeat(p.shields);
+      const dash = this.el.vsDash[i];
+      dash.style.setProperty('--charge', p.dashCharge.toFixed(3));
+      dash.classList.toggle('ready', p.dashReady);
+      dash.classList.toggle('active', p.isDashing);
+      const cannon = game.cannons[i], fire = this.el.vsFire[i];
+      fire.classList.toggle('hidden', !cannon.active);
+      if (cannon.active) {
+        fire.style.setProperty('--charge', Math.max(0, cannon.charge).toFixed(3));
+        fire.classList.toggle('ready', cannon.cooldown <= 0);
+      }
+    });
+  }
+
+  /** 开局倒数：3、2、1、GO! */
+  countdown(text) {
+    const c = this.el.countdown;
+    c.classList.toggle('hidden', text == null);
+    if (text == null) return;
+    c.textContent = text;
+    c.classList.remove('pop');
+    void c.offsetWidth;
+    c.classList.add('pop');
+  }
+
+  /** 对战结果：data = { winner: 0 | 1 | null（平手）, loser, reason, players: [{ score, distance, kills }] } */
+  showVersusOver(data) {
+    this.vsData = data;
+    this.setScreen('versusOver');
+    this.renderVersusOver();
+  }
+
+  renderVersusOver() {
+    const d = this.vsData, name = (i) => t('playerN', { n: i + 1 });
+    this.el.vsWinner.textContent = d.winner == null ? t('vsDraw') : t('vsWin', { p: name(d.winner) });
+    this.el.vsReason.textContent = d.loser == null ? '' : t(d.reason === 'BUSTED' ? 'vsBusted' : 'vsWrecked', { p: name(d.loser) });
+    this.el.vsResults.innerHTML = d.players.map((r, i) => `<div class="vs-res ${i === d.winner ? 'win' : ''}">${t('vsRes', { p: name(i), score: r.score.toLocaleString(), d: r.distance, k: r.kills })}</div>`).join('');
+  }
+
+  /** vp：分屏时这位玩家的画面区域 { x: 左边起点（0~1）, w: 宽度（0~1） } */
+  popup(text, worldPos, camera, big = false, vp = null) {
     v.copy(worldPos).project(camera);
     const d = document.createElement('div');
     d.className = big ? 'popup big' : 'popup';
     d.textContent = text;
-    d.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
+    d.style.left = `${((vp?.x ?? 0) + (v.x * 0.5 + 0.5) * (vp?.w ?? 1)) * innerWidth}px`;
     d.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
     this.el.popups.appendChild(d);
     setTimeout(() => d.remove(), 900);
   }
 
-  flash(color, alpha) {
+  /** side：分屏时只闪这位玩家那一半（0 左 / 1 右），不传 = 全屏 */
+  flash(color, alpha, side = null) {
     const f = this.el.flash;
+    f.style.left = side === 1 ? '50%' : '0';
+    f.style.right = side === 0 ? '50%' : '0';
     f.style.transition = 'none';
     f.style.background = color;
     f.style.opacity = alpha;

@@ -3,6 +3,7 @@ import { CONFIG } from '../config.js';
 import { Road, ROAD_HALF } from '../world/Road.js';
 import { Vehicle } from '../entities/Vehicle.js';
 import { makePoliceCar, makeSwat } from '../models/Models.js';
+import { makePoliceBoat } from '../models/Boats.js';
 import { clamp, damp, lerp, rand, smoothstep } from '../core/utils.js';
 import { classifyContact, pushApart } from '../systems/Collisions.js';
 import { RUN } from '../data/difficulty.js';
@@ -26,6 +27,11 @@ export class PoliceAI extends Vehicle {
     super(type === 'swat' ? makeSwat() : makePoliceCar(), spec.length, spec.width);
     this.type = type;
     this.spec = spec;
+  }
+
+  /** 海上：水警船 / 特警船 */
+  makeBoat() {
+    return makePoliceBoat(this.type === 'swat', this.length, this.width);
   }
 
   spawnChaser(scene, z, lateral, speed, role) {
@@ -166,7 +172,7 @@ export class PoliceAI extends Vehicle {
     } else {
       this.closeTime = Math.max(0, this.closeTime - dt);
     }
-    let speed = Math.min(this.refSpeed + rel, R.absMax * RUN.diff.speed); // 高难度警车更快，可能追上全速的玩家
+    let speed = Math.min(this.refSpeed + rel, R.absMax * RUN.diff.speed * RUN.pace); // 高难度警车更快，可能追上全速的玩家
     // 危险范围内的硬上限：绝不比玩家当前速度快超过 nearMaxRel（拦截者超车时用 blockerRel）
     if (near && this.backoff <= 0) speed = Math.min(speed, player.speed + (this.role === 0 ? R.blockerRel : R.nearMaxRel));
     return speed;
@@ -230,7 +236,7 @@ export class PoliceAI extends Vehicle {
 
   // 警车被别的车撞到 = 直接爆炸（可以形成连锁反应）
   knock(by, game, strength) {
-    if (by === game.player && strength < 1) return super.knock(by, game, strength);
+    if (game.isPlayer(by) && strength < 1) return super.knock(by, game, strength);
     this.explode(game, by);
   }
 
@@ -246,6 +252,6 @@ export class PoliceAI extends Vehicle {
     );
     this.burning = true;
     game.fx.explosion(this.mesh.position, power, fwd, Road.heading(this.z));
-    game.onEnemyDestroyed(this, power, source === game.player ? 'dash' : 'crash');
+    game.onEnemyDestroyed(this, power, game.isPlayer(source) ? 'dash' : 'crash', source);
   }
 }

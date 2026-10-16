@@ -48,7 +48,7 @@ export class TankAI extends Vehicle {
     this.launch(new THREE.Vector3(rand(-3, 3), 9, carry), new THREE.Vector3(rand(-2, 2), rand(-2, 2), rand(-2, 2)));
     this.burning = true;
     game.fx.explosion(this.mesh.position, 2.2, carry, Road.heading(this.z));
-    game.onEnemyDestroyed(this, 2.2, 'dash');
+    game.onEnemyDestroyed(this, 2.2, 'dash', source);
   }
 
   onPlayerCollision(player, game) {
@@ -129,9 +129,11 @@ export class Shells {
     const g = this.game, R = T.blastRadius + 1;
     g.fx.explosion(pos, 0.9);
     g.feel.onBlast();
-    const p = g.player, pp = p.mesh.position;
     // 推开方向用道路坐标：炮弹落点在玩家哪一侧
-    if (!p.airborne && Math.hypot(pp.x - pos.x, pp.z - pos.z) < R) p.hit(T.blastDamage, Math.sign(p.lateral - pos.lat) || 1, 0.6);
+    for (const p of g.players) {
+      const pp = p.mesh.position;
+      if (!p.airborne && Math.hypot(pp.x - pos.x, pp.z - pos.z) < R) p.hit(T.blastDamage, Math.sign(p.lateral - pos.lat) || 1, 0.6);
+    }
     for (const c of g.spawner.police) {
       if (c.collidable && Math.hypot(c.mesh.position.x - pos.x, c.mesh.position.z - pos.z) < R) c.explode(g, null);
     }

@@ -44,7 +44,7 @@ export class RoadWarnings {
       this.scene.add(m);
     }
     const w = Road.sample(z, lateral);
-    m.position.set(w.x, 0.07, w.z);
+    m.position.set(w.x, Road.surfaceY(z) + 0.07, w.z); // 海上贴在水面
     m.rotation.y = w.h + Math.PI; // 让三角形尖端朝前方（屏幕上方）
     m.visible = true;
     return m;

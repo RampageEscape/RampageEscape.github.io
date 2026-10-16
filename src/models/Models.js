@@ -25,6 +25,7 @@ export function mat(color, opts = {}) {
 // 警灯：所有警车共用两种材质，全局同步闪烁（省 draw call 也省 CPU）
 const SIREN_RED = new THREE.MeshBasicMaterial({ color: 0xff2020 });
 const SIREN_BLUE = new THREE.MeshBasicMaterial({ color: 0x2050ff });
+export const SIREN = { red: SIREN_RED, blue: SIREN_BLUE }; // 水警船也用同一组警灯材质
 export function updateSirens(t) {
   const on = Math.floor(t * 7) % 2 === 0;
   // 数值大于 1 = HDR，经过 Bloom 会发出光晕
@@ -73,8 +74,9 @@ function addLightbar(g, width = 0.38) {
   part(g.userData.root, SIREN_BLUE, W * width, 0.16, 0.36, W * 0.2, y, L * cabinZ);
 }
 
-export function makePlayerCar() {
-  const k = kitVehicle('hero-red', { length: 4.6 }) ?? kitVehicle('sedan-sports', { length: 4.4 });
+// skin：玩家 2 用 'p2'（珍珠白车漆 / 蓝色涂装），方便双人对战时分辨
+export function makePlayerCar(skin) {
+  const k = kitVehicle(skin === 'p2' ? 'hero-pearl' : 'hero-red', { length: 4.6 }) ?? kitVehicle('sedan-sports', { length: 4.4, tint: skin === 'p2' ? 0x3b6fd8 : undefined });
   if (k) return k;
   const g = vehicle({ L: 4.4, W: 2.0, H: 1.45, body: 0xd8261d, cabinL: 0.36, cabinZ: -0.1, cabinH: 0.36, clearance: 0.28 });
   const root = g.userData.root, { bodyH, clearance } = g.userData.dims;
@@ -85,8 +87,8 @@ export function makePlayerCar() {
 }
 
 /** 进化 1：肌肉车（黑色车身 + 橙色双条纹 + 进气口） */
-export function makeMuscleCar() {
-  const k = kitVehicle('hero-graphite', { length: 4.8 }) ?? kitVehicle('race', { length: 4.8 });
+export function makeMuscleCar(skin) {
+  const k = kitVehicle(skin === 'p2' ? 'hero-pearl' : 'hero-graphite', { length: 4.8 }) ?? kitVehicle('race', { length: 4.8, tint: skin === 'p2' ? 0x3b6fd8 : undefined });
   if (k) return k;
   const g = vehicle({ L: 4.8, W: 2.15, H: 1.55, body: 0x1d1f24, cabinL: 0.34, cabinZ: -0.12, cabinH: 0.36, clearance: 0.32 });
   const root = g.userData.root, { bodyH, clearance } = g.userData.dims, top = clearance + bodyH;
@@ -98,8 +100,8 @@ export function makeMuscleCar() {
 }
 
 /** 进化 2：装甲车（橄榄绿装甲 + 前方撞角 + 侧装甲板） */
-export function makeArmoredCar() {
-  const k = kitVehicle('suv-luxury', { length: 5.4 });
+export function makeArmoredCar(skin) {
+  const k = kitVehicle('suv-luxury', { length: 5.4, tint: skin === 'p2' ? 0x4a78c8 : undefined });
   if (k) {
     part(k.userData.root, mat(0x3a3d40), k.userData.dims.W * 1.05, 0.6, 0.45, 0, 0.6, 2.8); // 撞角
     return k;
@@ -138,7 +140,8 @@ export function makeTank(colors = {}) {
   return g;
 }
 
-export function makePlayerTank() {
+export function makePlayerTank(skin) {
+  if (skin === 'p2') return makeTank({ hull: 0x2f5fb8, top: 0x24498f, turretColor: 0x3a6fd0, track: 0x1e1e1e });
   return makeTank({ hull: 0xb8322a, top: 0x8f2820, turretColor: 0xc8402f, track: 0x1e1e1e });
 }
 

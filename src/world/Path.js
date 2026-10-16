@@ -112,6 +112,11 @@ export class Path {
     return this.pieceAt(s)?.biome ?? 'city';
   }
 
+  /** [s0, s1] 内有没有某种地图的路段（例如海上） */
+  hasBiome(s0, s1, biome) {
+    return this.pieces.some((p) => p.biome === biome && p.s1 > s0 && p.s0 < s1);
+  }
+
   /** [s0, s1] 内是否完全笔直（用来决定能不能放城市的装饰十字路口） */
   isStraight(s0, s1) {
     for (const p of this.pieces) {

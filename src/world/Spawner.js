@@ -76,14 +76,18 @@ export class Spawner {
   }
 
   update(dt) {
-    const g = this.game, p = g.player;
+    // 双人对战：前方的东西按领先的玩家来刷，每个敌人追离自己最近的那位玩家
+    const g = this.game, p = g.leader;
     if (g.state === 'playing') this.spawnLogic(dt, p, g.stars);
     const ctx = { player: p, fx: g.fx, game: g, hazards: this.entities, shells: this.shells };
-    for (const e of this.entities) e.update(dt, ctx);
+    for (const e of this.entities) {
+      ctx.player = g.targetFor(e);
+      e.update(dt, ctx);
+    }
     this.shells.update(dt);
     this.heli.update(dt);
     this.warnings.update(dt);
-    this.cull(p);
+    this.cull(p, g.trailZ);
   }
 
   spawnLogic(dt, p, stars) {
@@ -102,6 +106,7 @@ export class Spawner {
     }
     this.spawnLimit = limit;
     if (this.game.features?.isNear(this.game.features.stations, this.nextBarricadeZ, 90)) this.nextBarricadeZ += 150; // 不和改装站挤在一起
+    if (Road.isWater(this.nextBarricadeZ - 70) !== Road.isWater(this.nextBarricadeZ + 40)) this.nextBarricadeZ += 120; // 码头跳台 / 上岸滑道附近不放路障
     if (this.traffic.length < S.trafficCount * D.traffic) this.spawnCivilian(p.z + rand(130, 200));
     if (p.z + 170 > this.nextBarricadeZ && this.nextBarricadeZ < limit) {
       this.spawnBarricade(this.nextBarricadeZ, stars);
@@ -115,13 +120,14 @@ export class Spawner {
     }
 
     const tz = p.z + 170;
-    if (stars >= D.tankFrom && !this.tanks.length && tz > this.nextTankZ && tz < limit - 40 && BIOMES[Road.biomeAt(tz)].tanks) {
+    if (stars >= D.tankFrom && !this.tanks.length && tz > this.nextTankZ && tz < limit - 40 && BIOMES[Road.biomeAt(tz)].tanks && !Road.path.hasBiome(tz - 20, tz + 260, 'sea')) {
       this.spawnTank(tz);
       this.nextTankZ = tz + rand(500, 800);
     }
   }
 
   spawnChaser(p, stars) {
+    p = this.game.randomPlayer() ?? p; // 双人对战：警车轮流从两位玩家身后追上来
     const type = stars >= 2 && Math.random() < 0.1 + stars * 0.05 ? 'swat' : 'police';
     const cop = this.pools[type].get();
     const role = ROLES[this.roleIdx++ % ROLES.length];
@@ -140,7 +146,7 @@ export class Spawner {
     const lane = randInt(0, LANES - 1);
     if (!this.laneFree(z, laneOffset(lane), 14)) return;
     const c = this.pools.civilian.get();
-    c.spawnCivilian(this.scene, z, lane, rand(CONFIG.traffic.minSpeed, CONFIG.traffic.maxSpeed));
+    c.spawnCivilian(this.scene, z, lane, rand(CONFIG.traffic.minSpeed, CONFIG.traffic.maxSpeed) * RUN.pace); // 车流也随速度分级变快
     this.traffic.push(c);
     this.rebuild();
   }
@@ -182,7 +188,7 @@ export class Spawner {
     // 清掉这段范围内、还在屏幕外的民用车
     const [c0, c1] = B.clearTraffic;
     for (const c of this.traffic) {
-      if (c.z > z + c0 && c.z < z + c1 && c.z > this.game.player.z + 60) c.removeMe = true;
+      if (c.z > z + c0 && c.z < z + c1 && c.z > this.game.leader.z + 60) c.removeMe = true;
     }
 
     this.game.features?.onBarricade(z, blocked);
@@ -222,14 +228,14 @@ export class Spawner {
     this.rebuild();
   }
 
-  cull(p) {
+  cull(p, trailZ = p.z) {
     let changed = false;
     for (const list of this.lists) {
       for (let i = list.length - 1; i >= 0; i--) {
         // 一律用道路里程 e.z 判断（残骸飞行时 e.z 保持在被撞的位置）。
         // 不能用 mesh.position.z：路线转弯后世界 z 和里程不一样，会把刚撞飞的车立刻删掉
         const e = list[i], z = e.z;
-        if (e.removeMe || z < p.z - 60 || z > p.z + 320) {
+        if (e.removeMe || z < trailZ - 60 || z > p.z + 320) {
           this.recycle(e);
           list.splice(i, 1);
           changed = true;
@@ -238,7 +244,7 @@ export class Spawner {
     }
     if (changed) this.rebuild();
     for (let i = this.barricades.length - 1; i >= 0; i--) {
-      if (this.barricades[i].z < p.z - 30) {
+      if (this.barricades[i].z < trailZ - 30) {
         this.clearBarricade(this.barricades[i]);
         this.barricades.splice(i, 1);
       }
