@@ -10,6 +10,7 @@ import { Effects } from './fx/Effects.js';
 import { GameFeel } from './fx/GameFeel.js';
 import { Snow } from './fx/Weather.js';
 import { HUD } from './ui/HUD.js';
+import './pwa.js';
 import { resolveCollisions } from './systems/Collisions.js';
 import { updateSirens } from './models/Models.js';
 import { updateWater } from './world/RoadMaterial.js';

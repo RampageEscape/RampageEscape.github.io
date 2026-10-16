@@ -64,6 +64,16 @@ docs/ARCHITECTURE.md      架构设计与打击感设计说明
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 安装成手机 App（PWA）
+
+网站本身就是一个可安装的「网页 App」：有图标、全屏启动、第一次玩过之后可以离线玩。
+
+- **iPhone / iPad**：用 Safari 打开网站 → 点「分享」→「加入主画面」。
+- **安卓**：用 Chrome 打开网站 → 标题画面点「📲 安装到手机」（或浏览器菜单里的「安装应用」）。
+- **电脑**：Chrome / Edge 地址栏右边的安装图标。
+
+相关文件：`manifest.webmanifest`（名称、图标、全屏设置）、`sw.js`（离线缓存，网络优先）、`src/pwa.js`（安装按钮）、`assets/icons/`（图标由游戏里的 3D 跑车渲染生成）。
+
 ## 素材来源与授权
 
 | 素材 | 作者 / 来源 | 授权 |

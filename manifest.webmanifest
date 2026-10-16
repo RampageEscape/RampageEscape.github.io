@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "Rampage Escape 暴走大逃亡",
+  "short_name": "暴走大逃亡",
+  "description": "警車追逐街機遊戲：滑動閃避、衝刺撞毀警車。Arcade police-chase game: swipe to dodge, dash to smash cop cars.",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "portrait",
+  "background_color": "#0b0918",
+  "theme_color": "#0b0918",
+  "categories": ["games"],
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
