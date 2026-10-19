@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 import { laneOffset, nearestLane } from '../world/Road.js';
 import { classifyContact, pushApart } from '../systems/Collisions.js';
 import { Vehicle } from '../entities/Vehicle.js';
-import { makeCivilian, makeBarrier, makeCone, makeSpikeStrip } from '../models/Models.js';
+import { makeCivilian, makeBarrier, makeCone, makeSpikeStrip, makeOilSlick } from '../models/Models.js';
 import { makeCivilianBoat, makeBuoy, makeFloatBarrier, makeSeaMine } from '../models/Boats.js';
 import { RUN } from '../data/difficulty.js';
 import { damp, rand } from '../core/utils.js';
@@ -125,6 +125,7 @@ const OBSTACLES = {
   cone: { make: makeCone, boat: makeBuoy, L: 0.7, W: 0.7 },
   barrier: { make: makeBarrier, boat: makeFloatBarrier, L: 0.7, W: 3.2 },
   spikes: { make: makeSpikeStrip, boat: makeSeaMine, L: 0.9, W: 3.3 },
+  oil: { make: makeOilSlick, boat: makeOilSlick, L: 4, W: 6.4 }, // 玩家丢下的油渍：追上来的警车会打滑翻车
 };
 export class Obstacle extends Vehicle {
   constructor(kind) {
@@ -146,10 +147,18 @@ export class Obstacle extends Vehicle {
 
   update(dt, { fx }) {
     if (this.state === 'wreck') this.updateWreck(dt, fx);
+    if (this.type === 'oil' && (this.life -= dt) <= 0) this.removeMe = true; // 油渍过一会儿就散了
   }
 
   onPlayerCollision(player, game) {
     const dash = player.smashes;
+    if (this.type === 'oil') {
+      // 自己丢的油渍对自己无效；双人对战时对手开上去会打滑
+      if (this.owner === player || this.spiked[player.index]) return;
+      this.spiked[player.index] = true;
+      if (player.hit(8, Math.random() < 0.5 ? -1 : 1, 0.65)) game.onSlip?.(player);
+      return;
+    }
     if (this.type === 'spikes') {
       // 钉刺带：每位玩家只触发一次；冲刺 / 暴走 / 坦克直接压过去没事
       if (this.spiked[player.index]) return;
@@ -166,7 +175,7 @@ export class Obstacle extends Vehicle {
   }
 
   knock(by, game, s = 1) {
-    if (this.state === 'wreck' || (this.type === 'spikes' && !this.onWater)) return; // 钉刺带贴在地上，撞不飞
+    if (this.state === 'wreck' || this.type === 'oil' || (this.type === 'spikes' && !this.onWater)) return; // 钉刺带、油渍贴在地上，撞不飞
     this.launch(
       new THREE.Vector3(rand(-6, 6), rand(7, 12) * s, (by?.speed ?? 20) * 0.9),
       new THREE.Vector3(rand(-10, 10), rand(-10, 10), rand(-10, 10)),

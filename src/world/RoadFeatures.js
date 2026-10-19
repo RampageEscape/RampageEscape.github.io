@@ -28,7 +28,37 @@ const PICKUPS = {
   shield: { color: '#2f9bff', icon: '🛡️' },
   nitro: { color: '#ffb020', icon: '⚡' },
   repair: { color: '#2ecc71', icon: '🔧' },
+  emp: { color: '#16b8e8', icon: '💠' }, // 电磁脉冲：周围的警车全部瘫痪爆炸
+  missile: { color: '#e8410f', icon: '🚀' }, // 导弹：三枚追踪导弹打最近的警车
+  oil: { color: '#3a3a3a', icon: '🛢️' }, // 油渍：身后铺一片油，追上来的警车打滑翻车
 };
+// 抽道具的权重（攻击道具稍微少一点）
+const PICKUP_POOL = ['shield', 'shield', 'nitro', 'nitro', 'repair', 'repair', 'emp', 'missile', 'missile', 'oil', 'oil'];
+
+// 加速带：路面上发光的青色箭头，箭头会往前流动
+const BOOST_TEX = (() => {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(30,200,255,0.25)';
+  g.fillRect(0, 0, 128, 256);
+  g.fillStyle = 'rgba(255,255,255,0.95)';
+  for (let k = 0; k < 2; k++) {
+    const y = 40 + k * 128;
+    g.beginPath();
+    g.moveTo(14, y + 60); g.lineTo(64, y); g.lineTo(114, y + 60); g.lineTo(114, y + 88); g.lineTo(64, y + 30); g.lineTo(14, y + 88);
+    g.closePath();
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1, 2);
+  return t;
+})();
+const BOOST_MAT = new THREE.MeshBasicMaterial({ map: BOOST_TEX, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+BOOST_MAT.color.setRGB(0.6, 2.2, 3.2);
+const BOOST_GEO = new THREE.PlaneGeometry(3.0, 7).rotateX(-Math.PI / 2);
 const pickupTex = {};
 function pickupMaterial(kind) {
   if (!pickupTex[kind]) {
@@ -119,10 +149,12 @@ export class RoadFeatures {
   }
 
   reset() {
-    for (const list of [this.stations, this.pickups, this.ramps, this.arrows]) {
+    for (const list of [this.stations, this.pickups, this.ramps, this.arrows, this.boosts ?? []]) {
       for (const o of list) this.scene.remove(o.obj);
       list.length = 0;
     }
+    this.boosts = [];
+    this.nextBoostZ = 260;
     this.arrowJunction = null;
     if (this.finish) this.scene.remove(this.finish.obj);
     this.finish = null;
@@ -202,6 +234,16 @@ export class RoadFeatures {
     this.ramps.push({ s, lat: laneOffset(lane), obj: m });
   }
 
+  addBoost(s, lane) {
+    const m = new THREE.Mesh(BOOST_GEO, BOOST_MAT);
+    const w = Road.sample(s, laneOffset(lane));
+    m.position.set(w.x, Road.surfaceY(s) + 0.07, w.z);
+    m.rotation.y = w.h;
+    m.renderOrder = 2;
+    this.scene.add(m);
+    this.boosts.push({ s, lat: laneOffset(lane), obj: m, used: [] });
+  }
+
   /** 路障生成时调用：有一定概率在被堵车道前放跳台，可以直接飞过去 */
   onBarricade(z, blocked) {
     if (Road.isWater(z - 16)) return; // 海上没有跳台
@@ -223,8 +265,7 @@ export class RoadFeatures {
       if (pz > this.nextPickupZ && this.nextPickupZ < limit) {
         const z = this.nextPickupZ;
         if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 40) && !nearJunction(z) && !nearDock(z, 25)) {
-          const kinds = Object.keys(PICKUPS);
-          this.addPickup(z, randInt(0, LANES - 1), kinds[randInt(0, kinds.length - 1)]);
+          this.addPickup(z, randInt(0, LANES - 1), PICKUP_POOL[randInt(0, PICKUP_POOL.length - 1)]);
         }
         this.nextPickupZ += rand(F.pickupMinGap, F.pickupMaxGap);
       }
@@ -233,6 +274,16 @@ export class RoadFeatures {
         const z = this.nextRampZ;
         if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 60) && !nearJunction(z) && !Road.isWater(z) && !nearDock(z, 40)) this.addRamp(z, randInt(0, LANES - 1));
         this.nextRampZ += rand(F.rampMinGap, F.rampMaxGap);
+      }
+      // 加速带：每隔一段路在一两条车道上放一块
+      if (pz > this.nextBoostZ && this.nextBoostZ < limit) {
+        const z = this.nextBoostZ;
+        if (!sp.inBarricadeZone(z) && !this.isNear(this.stations, z, 50) && !nearJunction(z) && !nearDock(z, 30)) {
+          const lane = randInt(0, LANES - 1);
+          this.addBoost(z, lane);
+          if (Math.random() < 0.4) this.addBoost(z, lane > 0 ? lane - 1 : lane + 1);
+        }
+        this.nextBoostZ += rand(260, 420);
       }
       // 终点：路线生成到那里了才放
       if (!this.finish && this.finishS < Infinity && Road.path.length > this.finishS + 20 && this.finishS - p.z < 400) {
@@ -279,6 +330,16 @@ export class RoadFeatures {
         }
       }
     }
+    // 加速带：箭头往前流动；开上去获得一段爆发加速
+    BOOST_TEX.offset.y -= dt * 2.2;
+    for (const b of this.boosts) {
+      for (const pl of g.players) {
+        if (!b.used[pl.index] && g.state === 'playing' && !pl.airborne && Math.abs(pl.z - b.s) < 3.5 && Math.abs(pl.lateral - b.lat) < 1.5 + pl.width * 0.3) {
+          b.used[pl.index] = true;
+          g.onBoostPad(pl);
+        }
+      }
+    }
     // 跳台：开上斜面就起飞
     for (const r of this.ramps) {
       for (const pl of g.players) {
@@ -290,7 +351,7 @@ export class RoadFeatures {
 
     // 清理身后的（双人对战时以落后的玩家为准）
     const behind = (o) => o.s < g.trailZ - 60;
-    for (const list of [this.stations, this.pickups, this.ramps, this.arrows]) {
+    for (const list of [this.stations, this.pickups, this.ramps, this.arrows, this.boosts]) {
       for (let i = list.length - 1; i >= 0; i--) {
         if (behind(list[i])) { this.scene.remove(list[i].obj); list.splice(i, 1); }
       }

@@ -73,28 +73,25 @@ export class GameFeel {
     } else {
       this.timeScale = 1;
     }
-    if (this.slowT > 0) {
-      this.slowT -= realDt;
-      this.timeScale = Math.min(this.timeScale, this.slowScale);
-    } else {
-      this.slowScale = 1;
-    }
+    // 慢动作平滑地进入、退出（不是一下子切换，避免“卡一下”的感觉）
+    if (this.slowT > 0) this.slowT -= realDt;
+    else this.slowScale = 1;
+    this.slowEase = damp(this.slowEase ?? 1, this.slowScale, 10, realDt);
+    this.timeScale = Math.min(this.timeScale, this.slowEase);
     this.zoomKick = damp(this.zoomKick, 0, 7, realDt);
     this.zoom = 1 + this.zoomKick;
   }
 
   // ---------------- 事件 → 手感配方 ----------------
+  // 撞毁警车 / 被撞：不再用“顿帧”（画面停一下，玩家会觉得卡），只用镜头震动和推拉来表现冲击
   onEnemyDestroyed(power, combo) {
-    this.hitStop(0.045 + 0.025 * power + 0.01 * Math.min(combo, 5));
-    this.shake.add(0.35 + 0.15 * power);
-    this.zoomKick += 0.06 * power; // 镜头往里推一下
-    if (combo >= 3) this.slowMo(0.35, 0.35); // 连击时短暂慢动作
+    this.shake.add(0.22 + 0.1 * power + 0.02 * Math.min(combo, 5));
+    this.zoomKick += 0.05 * power; // 镜头往里推一下
     vibrate(Math.round(25 * power));
   }
 
   onPlayerHit(damage) {
-    this.hitStop(0.035, 0.1);
-    this.shake.add(0.25 + damage / 60);
+    this.shake.add(0.18 + damage / 80);
     this.zoomKick -= 0.03;
     vibrate(60);
   }

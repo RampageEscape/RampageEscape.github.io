@@ -311,6 +311,15 @@ export class AudioEngine {
     for (let i = 0; i < 6; i++) this.tone('sine', 380 + Math.random() * 500, t + 0.12 + i * 0.07, 0.07, 0.07, out, 900 + Math.random() * 700);
   }
 
+  /** 电磁脉冲：电流“滋——”往下扫 + 低频轰 */
+  emp() {
+    if (!this.ctx || !this.sfxOn) return;
+    const t = this.ctx.currentTime, out = this.out(0.6);
+    this.tone('sawtooth', 2400, t, 0.6, 0.18, out, 60);
+    this.tone('square', 1200, t + 0.02, 0.4, 0.1, out, 90);
+    this.tone('sine', 70, t, 0.8, 0.6, out, 30);
+  }
+
   /** 速度升级：引擎“轰”一声往上扫 + 明亮的上行琶音 */
   speedUp() {
     if (!this.ctx || !this.sfxOn) return;

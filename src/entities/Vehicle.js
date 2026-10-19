@@ -65,6 +65,7 @@ export class Vehicle {
 
   spawn(scene, z, lateral, speed) {
     this.setWater(false); // 对象池里拿出来的可能还是船，先换回陆地模型
+    this.visLat = this.visZ = 0;
     this.z = z;
     this.lateral = lateral;
     this.speed = speed;
@@ -94,10 +95,28 @@ export class Vehicle {
     return this.alive && this.state !== 'wreck';
   }
 
+  /**
+   * 碰撞分离时，逻辑位置要立刻推开（避免下一帧重复碰撞），但画面上如果也瞬间跳过去会显得“卡一下”。
+   * 所以把跳跃量记成视觉偏移，在 0.15 秒内平滑地收回来。
+   */
+  snapTo(lateral, z = this.z) {
+    this.visLat = (this.visLat ?? 0) + this.lateral - lateral;
+    this.visZ = (this.visZ ?? 0) + this.z - z;
+    this.lateral = lateral;
+    this.z = z;
+  }
+
   sync() {
     const water = Road.isWater(this.z);
     if (water !== !!this.onWater) this.setWater(water);
-    const w = Road.sample(this.z, this.lateral, SAMPLE);
+    const now = performance.now(), dt = Math.min(0.1, (now - (this.lastSync ?? now)) / 1000);
+    this.lastSync = now;
+    if (this.visLat || this.visZ) {
+      const k = Math.exp(-14 * dt);
+      this.visLat = Math.abs(this.visLat * k) < 0.01 ? 0 : this.visLat * k;
+      this.visZ = Math.abs(this.visZ * k) < 0.01 ? 0 : this.visZ * k;
+    }
+    const w = Road.sample(this.z + (this.visZ ?? 0), this.lateral + (this.visLat ?? 0), SAMPLE);
     spinWheels(this.mesh, this.z - (this.wheelZ ?? this.z));
     this.wheelZ = this.z;
     let y = 0;

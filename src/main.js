@@ -19,6 +19,9 @@ import { clamp, damp, dampAngle } from './core/utils.js';
 import { t } from './i18n.js';
 import { RoadFeatures } from './world/RoadFeatures.js';
 import { Cannon } from './player/Cannon.js';
+import { Cockpit } from './player/Cockpit.js';
+import { Missiles } from './player/Missiles.js';
+import { SpeedLines } from './fx/SpeedLines.js';
 import { TIERS } from './player/Vehicles.js';
 import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
@@ -103,6 +106,14 @@ class Game {
     this.camera = this.cameraMode === 'iso' ? this.ortho : this.persp;
     CONFIG.world.tallNear = this.cameraMode !== 'iso';
     for (const r of this.rigs) r.cam.near = this.cameraMode === 'first' ? 0.05 : 0.3;
+    // 第一人称驾驶舱：挂在每台追尾镜头下面（layer 4 / 5 只给自己那台镜头看）
+    this.cockpits = this.rigs.map((r, i) => {
+      const c = new Cockpit(4 + i);
+      r.cam.layers.enable(4 + i);
+      r.cam.add(c.group);
+      c.mirrorCam.layers.enable(2 + i); // 后视镜看得到对手的车（双人对战第一人称时对手的车在 layer 2 / 3）
+      return c;
+    });
     this.camOffset = new THREE.Vector3(...CONFIG.camera.offset);
     this.camTarget = new THREE.Vector3();
 
@@ -121,6 +132,7 @@ class Game {
     this.ground.position.y = -0.03;
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
+    for (const r of this.rigs) this.scene.add(r.cam); // 镜头要在场景里，挂在镜头下的驾驶舱才会被渲染
 
     // Bloom 光晕：阈值 1.6 → 只有“比白还亮”（HDR）的东西会发光：火焰、火花、警灯、车灯、霓虹
     this.composer = new EffectComposer(this.renderer);
@@ -154,6 +166,9 @@ class Game {
     this.features = new RoadFeatures(this);
     this.cannon = new Cannon(this, this.player);
     this.cannons = [this.cannon];
+    this.missiles = new Missiles(this);
+    this.speedLines = new SpeedLines();
+    this.lowHp = document.getElementById('low-hp');
 
     // 单人：全屏滑动 / 方向键；双人：左右半屏 + 两套键位（VersusInput）
     new SwipeInput(canvas, {
@@ -312,6 +327,7 @@ class Game {
     this.spawner.reset();
     this.features.reset();
     for (const c of this.cannons) c.reset();
+    this.missiles.reset();
     this.coinDist = 0;
     if (this.level) this.features.setFinish(this.level.length);
     this.camYaw = 0;
@@ -597,6 +613,9 @@ class Game {
     this.missionEvent('pickups');
     if (kind === 'shield') p.shields = Math.min(3, p.shields + 1);
     else if (kind === 'nitro') p.dashCooldown = 0;
+    else if (kind === 'emp') this.empBlast(p);
+    else if (kind === 'missile') this.fireMissiles(p);
+    else if (kind === 'oil') { this.spawner.dropOil(p); this.audio.whoosh(0, 0.6); }
     else p.heal(25);
     p.score += 100;
     this.fx.impact(pos, 0.5);
@@ -650,6 +669,49 @@ class Game {
     this.feel.shake.add(0.25);
     this.flashFor(p, '#5ad1ff', 0.3);
     this.popAt(p, t('shieldBlock'), p.mesh.position);
+  }
+
+  /** 道具：电磁脉冲 —— 周围 24 米内的警车全部瘫痪爆炸，坦克、直升机也逃不掉 */
+  empBlast(p) {
+    const R = 24, pos = p.mesh.position, sp = this.spawner;
+    this.fx.empWave(pos, R);
+    this.audio.emp();
+    this.feel.shake.add(0.45);
+    this.feel.zoomKick += 0.08;
+    this.bloomKick = 1.4;
+    this.flashFor(p, '#46e6ff', 0.35);
+    for (const c of sp.police) if (c.collidable && c.mesh.position.distanceTo(pos) < R) c.explode(this, p);
+    for (const tk of sp.tanks) if (tk.collidable && tk.mesh.position.distanceTo(pos) < R) tk.destroy(this, p);
+    if (sp.heli.collidable && sp.heli.mesh.position.distanceTo(pos) < R + 12) sp.heli.damage(this, p);
+  }
+
+  /** 道具：导弹 —— 三枚追踪导弹打最近的三个目标（警车 / 坦克 / 直升机），没有目标就往前打 */
+  fireMissiles(p) {
+    const sp = this.spawner, pos = p.mesh.position;
+    const targets = [...sp.police, ...sp.tanks, sp.heli]
+      .filter((e) => e.collidable && e.mesh.position.distanceTo(pos) < 140)
+      .sort((a, b) => a.mesh.position.distanceTo(pos) - b.mesh.position.distanceTo(pos));
+    while (targets.length < 3) targets.push(null);
+    this.missiles.fire(p, targets);
+    this.feel.shake.add(0.15);
+  }
+
+  /** 开上加速带 */
+  onBoostPad(p) {
+    p.boost(2.4);
+    this.audio.dash();
+    this.speedKick = 1;
+    this.feel.zoomKick -= 0.05;
+    this.flashFor(p, '#46e6ff', 0.15);
+    this.fx.decal('ring', p.mesh.position, 0.4, 8, 0x46e6ff);
+    this.popAt(p, t('boostPad'), p.mesh.position, true);
+    p.score += 100;
+  }
+
+  /** 双人对战：开上对手丢的油渍 */
+  onSlip(p) {
+    this.popAt(p, t('slipped'), p.mesh.position, true);
+    this.audio.impact(0.6, 1);
   }
 
   /** 压到钉刺带：爆胎（速度骤降、掉血、火花） */
@@ -779,6 +841,15 @@ class Game {
     const frame = Math.min(0.05, (now - this.last) / 1000);
     this.update(frame);
     this.last = now;
+    // 第一人称后视镜：每隔几帧渲染一次身后的画面（双人时两面镜子轮流更新）
+    if (this.cameraMode === 'first') {
+      this.mirrorFrame = (this.mirrorFrame ?? 0) + 1;
+      const every = this.versus ? 3 : 3, i = this.versus ? Math.floor(this.mirrorFrame / every) % 2 : 0;
+      if (this.mirrorFrame % every === 0) {
+        const p = this.players[i];
+        this.cockpits[i].renderMirror(this.renderer, this.scene, p.mesh.position, p.mesh.rotation.y);
+      }
+    }
     this.watchPerformance(frame);
     this.bloomKick = damp(this.bloomKick, 0, 6, frame);
     if (this.versus) {
@@ -841,7 +912,12 @@ class Game {
     this.features.update(dt);
     for (const c of this.cannons.slice(0, this.players.length)) c.update(dt);
     if (this.state === 'playing') this.updatePlaying(dt);
-    for (const p of this.players) if (p.isDashing) this.fx.dashTrail(p);
+    this.missiles.update(dt);
+    for (const p of this.players) {
+      if (p.isDashing) this.fx.dashTrail(p);
+      if ((p.isDashing || p.boosting) && !p.onWater && p.alive) this.fx.exhaust(p); // 排气管喷火
+      this.fx.damageSmoke(p, dt); // 受损冒烟 / 着火
+    }
 
     this.world.update(this.leader.z, this.trailZ);
     this.updateWakes(dt);
@@ -852,7 +928,18 @@ class Game {
     this.updateEnvironment(realDt);
     this.updateCamera(realDt);
     this.hideNearCamera();
+    this.updateOverlays(realDt);
     this.hud.update(this, realDt);
+  }
+
+  /** 速度线 + 低血量红色暗角（单人模式） */
+  updateOverlays(dt) {
+    const p = this.player, live = this.state === 'playing' && !this.versus;
+    const fast = clamp((p.speed * 3.6 - 150) / 100, 0, 0.5) + (p.isDashing || p.boosting ? 0.9 : 0) + (p.rampage > 0 ? 0.4 : 0);
+    this.speedLines.update(dt, live ? fast : 0);
+    const ratio = p.hp / p.maxHp, danger = live && ratio < 0.35 ? (0.35 - ratio) / 0.35 : 0;
+    const pulse = 0.7 + 0.3 * Math.sin(performance.now() * 0.006 * (1 + danger));
+    this.lowHp.style.opacity = (Math.min(1, 0.35 + danger) * pulse * (danger > 0 ? 1 : 0)).toFixed(3);
   }
 
   /**
@@ -1021,7 +1108,17 @@ class Game {
       obj.traverse((o) => { o.layers.mask = mask; });
     };
     for (const e of this.spawner.entities) if (e.mesh) apply(e.mesh);
-    if (this.versus) this.players.forEach((p) => apply(p.mesh, p.index));
+    const setMask = (obj, mask) => {
+      if (obj.userData.camMask === mask) return;
+      obj.userData.camMask = mask;
+      obj.traverse((o) => { o.layers.mask = mask; });
+    };
+    for (const p of this.players) {
+      // 第一人称：自己的车身对自己的镜头隐藏（只看驾驶舱）；双人时对手的镜头照样看得到
+      if (this.cameraMode === 'first') setMask(p.mesh, this.versus ? 1 << (p.index ? 2 : 3) : 1 << 1);
+      else if (this.versus) apply(p.mesh, p.index);
+      else setMask(p.mesh, 1);
+    }
   }
 
   /** 头顶 P1/P2 标签：双人对战才显示；第一人称时会挡住视线，隐藏 */
@@ -1062,7 +1159,9 @@ class Game {
   }
 
   updateCamera(dt) {
-    for (const p of this.players) p.firstPerson = this.cameraMode === 'first';
+    const first = this.cameraMode === 'first';
+    for (const p of this.players) p.firstPerson = first;
+    this.cockpits.forEach((c, i) => { c.group.visible = first && i < this.players.length; });
     if (this.versus) {
       this.players.forEach((p, i) => this.updatePerspCamera(dt, this.rigs[i], p));
       this.camTarget.copy(this.rigs[0].target).lerp(this.rigs[1].target, 0.5); // 阴影、地面、雪跟着两人中间
@@ -1109,21 +1208,39 @@ class Game {
    * 真车模型有内饰（仪表台、方向盘、A 柱），所以看得到“坐在车里”的感觉；开船时在驾驶台上。
    */
   updateFirstPerson(dt, rig, p) {
-    const cam = rig.cam, m = p.mesh, u = m.userData;
-    // 眼睛高度：真车 / Kenney 车 = 车顶高度的 92%（坐在驾驶座、从挡风玻璃往外看）；坦克在炮塔上方；船在驾驶台
-    const eye = (u.boat ? 1.5 : u.kit ? (u.topY ?? 1.4) * 0.92 : (u.dims?.H ?? 1.6) * 1.05) * p.sizeMul;
-    const h = m.rotation.y, fwd = (u.boat ? 0 : 0.08) * p.length * p.sizeMul;
+    const cam = rig.cam, m = p.mesh, u = m.userData, cockpit = this.cockpits[rig === this.rigs[0] ? 0 : 1];
+    // 眼睛高度：轿跑约 1.15 米；船站在驾驶台上更高；坦克从炮塔舱口看出去
+    const eye = (u.boat ? 1.55 : p.tier.cannon ? 2.5 : p.tier.ram ? 1.5 : 1.15) * p.sizeMul;
+    const h = m.rotation.y, fwd = 0.1 * p.length * p.sizeMul;
     cam.position.set(m.position.x + Math.sin(h) * fwd, m.position.y + eye, m.position.z + Math.cos(h) * fwd);
-    cam.position.addScaledVector(this.feel.shake.offset, 0.25);
+    cam.position.addScaledVector(this.feel.shake.offset, 0.2);
+    // 高速时轻微的路面震动
+    const t = performance.now() * 0.001, rumble = Math.min(1, p.speed / 45) * (p.onWater ? 0.012 : 0.004);
+    cam.position.y += Math.sin(t * 37) * rumble + Math.sin(t * 23) * rumble * 0.6;
     const ahead = Road.sample(p.z + 30, p.lateral * 0.6 + p.latVel * 0.12, SAMPLE);
-    if (!rig.init) { rig.target.set(ahead.x, 0, ahead.z); rig.init = true; }
+    if (!rig.init) { rig.target.set(ahead.x, 0, ahead.z); rig.init = true; rig.lastH = Road.heading(p.z); rig.lastSpeed = p.speed; }
     rig.target.x = damp(rig.target.x, ahead.x, 10, dt);
     rig.target.z = damp(rig.target.z, ahead.z, 10, dt);
-    cam.lookAt(rig.target.x, m.position.y + eye * 0.78, rig.target.z);
-    cam.rotateZ(-(p.root?.rotation.z ?? 0) * 0.8 + this.feel.shake.roll * 0.3);
-    const fov = 72 + (p.isDashing ? 12 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 12;
+    cam.lookAt(rig.target.x, m.position.y + eye * 0.86, rig.target.z);
+    cam.rotateZ(-(p.root?.rotation.z ?? 0) * 0.6 + this.feel.shake.roll * 0.3);
+    const fov = 70 + (p.isDashing || p.boosting ? 12 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 10;
     cam.fov = damp(cam.fov, fov / this.feel.zoom, 6, dt);
     cam.updateProjectionMatrix();
+    // 驾驶舱：方向盘跟着变道和弯道转，仪表显示车速 / 转速 / 档位
+    const hd = Road.heading(p.z), turn = Math.atan2(Math.sin(hd - rig.lastH), Math.cos(hd - rig.lastH)) / Math.max(dt, 1e-3);
+    rig.lastH = hd;
+    const accel = (p.speed - rig.lastSpeed) / Math.max(dt, 1e-3);
+    rig.lastSpeed = p.speed;
+    cockpit.setPaint(this.hoodColor(p));
+    cockpit.update(dt, cam, { steer: clamp(p.latVel * 0.06 + turn * 2, -1, 1), speed: p.speed, boost: p.isDashing || p.boosting, accel });
+  }
+
+  /** 第一人称时挡风玻璃外引擎盖的颜色（跟着当前车辆 / 船、玩家 1 / 2） */
+  hoodColor(p) {
+    const P1 = { sports: 0xb3140f, muscle: 0x1a1b1e, armored: 0x55603f, tank: 0xb8322a };
+    const P2 = { sports: 0xe6e3dc, muscle: 0xe6e3dc, armored: 0x4a78c8, tank: 0x2f5fb8 };
+    if (p.onWater && p.tier.id !== 'armored' && p.tier.id !== 'tank') return p.index ? 0xf4f6f8 : P1[p.tier.id];
+    return (p.index ? P2 : P1)[p.tier.id];
   }
 
   /**

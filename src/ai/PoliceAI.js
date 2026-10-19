@@ -226,6 +226,11 @@ export class PoliceAI extends Vehicle {
 
   /** 追捕中撞上别的东西（被玩家引诱去撞民用车、路障、坦克） */
   crashInto(o, game) {
+    if (o.type === 'oil') {
+      // 开上油渍：打滑失控，翻车爆炸（功劳记给丢油的玩家）
+      this.explode(game, o.owner ?? null);
+      return;
+    }
     const rel = this.speed - (o.speed || 0);
     if (o.type === 'tank' || o.mode === 'parked' || o.mode === 'static' || rel > 6) {
       this.explode(game, o);

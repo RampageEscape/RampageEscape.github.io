@@ -108,6 +108,7 @@ export class PlayerController {
     this.sizeMul = 1;
     this.alive = true;
     this.draft = 0; // 双人对战：落后的一方获得的追赶加速（米/秒）
+    this.boostTimer = 0; // 加速带：剩余秒数
     // 这一局的成绩（每位玩家各自一份）
     this.score = 0;
     this.distance = 0;
@@ -203,6 +204,13 @@ export class PlayerController {
     this.events.onDashEnd?.(this);
   }
 
+  /** 开上加速带：几秒内额外加速（不无敌，撞到东西照样扣血） */
+  boost(seconds = 2.2) {
+    this.boostTimer = Math.max(this.boostTimer, seconds);
+  }
+
+  get boosting() { return this.boostTimer > 0; }
+
   /** 暴走模式：车身变大、无敌、加速，撞到的一切都会爆炸 */
   startRampage(seconds) {
     this.rampage = seconds;
@@ -219,7 +227,7 @@ export class PlayerController {
 
   /** 重型车辆撞爆东西的代价：掉一点速度和一点点血 */
   ramImpact(damage = 3) {
-    this.speed *= 0.92;
+    this.hitSlow = Math.max(this.hitSlow ?? 0, 0.08);
     if (this.isDashing || this.rampage > 0) return;
     // 高难度下重型车辆撞车很伤：坦克也不是无敌的，掉到 0 血会直接报废
     this.hp = Math.max(0, this.hp - damage * RUN.diff.ramCost);
@@ -242,7 +250,7 @@ export class PlayerController {
     damage *= RUN.diff.dmg;
     this.hp = Math.max(0, this.hp - damage);
     this.invuln = P.hitInvuln;
-    this.speed *= speedMul;
+    this.hitSlow = Math.max(this.hitSlow ?? 0, 1 - speedMul); // 减速在 0.2 秒内平滑完成，不是瞬间“一顿”
     if (pushDir) {
       this.knockVel = pushDir * 8;
       this.lane = nearestLane(this.lateral + pushDir * CONFIG.road.laneWidth * 0.6);
@@ -294,11 +302,20 @@ export class PlayerController {
     this.speedBias = Math.abs(this.speedBias) <= decay ? 0 : this.speedBias - Math.sign(this.speedBias) * decay;
     const pace = RUN.pace; // 速度分级：开局慢，分数越高越快
     let target = clamp((cruise + this.speedBias) * pace, P.minSpeed * pace, (st.maxSpeed + this.tier.speed) * pace) + this.draft * pace;
+    if (this.boostTimer > 0) {
+      this.boostTimer -= dt;
+      target += 16 * pace;
+    }
     if (this.isDashing) target *= P.dash.speedMul;
     else if (this.rampage > 0) target *= 1.3;
     if (!this.alive) target = 0;
-    const rate = target > this.speed ? (this.isDashing ? P.accel * 5 : P.accel) : P.brake;
+    const rate = target > this.speed ? (this.isDashing || this.boostTimer > 0 ? P.accel * 5 : P.accel) : P.brake;
     this.speed += clamp(target - this.speed, -rate * dt, rate * dt);
+    if (this.hitSlow > 0.001) {
+      const k = Math.min(1, dt * 7);
+      this.speed *= 1 - this.hitSlow * k;
+      this.hitSlow *= 1 - k;
+    }
 
     // 码头：开到码头尽头的跳台自动飞起来下水；海上快到对岸时冲上滑道飞回陆地
     if (this.alive && !this.airborne) {

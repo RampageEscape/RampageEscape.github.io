@@ -30,6 +30,7 @@ export class Spawner {
       barrier: pool(() => new Obstacle('barrier'), 6),
       cone: pool(() => new Obstacle('cone'), 8),
       spikes: pool(() => new Obstacle('spikes'), 4),
+      oil: pool(() => new Obstacle('oil'), 2),
       tank: pool(() => new TankAI(), 1),
     };
     this.police = [];
@@ -254,6 +255,16 @@ export class Spawner {
     const o = this.pools[kind].get();
     o.spawnStatic(this.scene, z, lat);
     this.obstacles.push(o);
+    return o;
+  }
+
+  /** 道具“油渍”：在玩家身后铺一大片油（盖住两条车道），10 秒后消失 */
+  dropOil(p) {
+    const o = this.addStatic('oil', p.z - 9, p.lateral);
+    o.owner = p;
+    o.life = 10;
+    this.rebuild();
+    return o;
   }
 
   spawnTank(z) {

@@ -231,6 +231,30 @@ export function makeSpikeStrip() {
   return g;
 }
 
+/** 油渍：不规则的黑色油膜，带彩虹色的油光（iridescence） */
+const OIL_MAT = new THREE.MeshPhysicalMaterial({ color: 0x060606, roughness: 0.06, metalness: 0.3, iridescence: 1, iridescenceIOR: 1.6, iridescenceThicknessRange: [200, 700], transparent: true, opacity: 0.92, depthWrite: false });
+const OIL_GEO = (() => {
+  const shape = new THREE.Shape();
+  for (let i = 0; i <= 40; i++) {
+    const a = (i / 40) * Math.PI * 2, r = 1 + 0.18 * Math.sin(a * 3 + 1) + 0.1 * Math.sin(a * 7);
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (i) shape.lineTo(x, y); else shape.moveTo(x, y);
+  }
+  return new THREE.ShapeGeometry(shape, 6).rotateX(-Math.PI / 2);
+})();
+export function makeOilSlick() {
+  const g = new THREE.Group();
+  const root = new THREE.Group();
+  g.add(root);
+  const m = new THREE.Mesh(OIL_GEO, OIL_MAT);
+  m.scale.set(3.4, 1, 2.2);
+  m.position.y = 0.05;
+  m.renderOrder = 1;
+  root.add(m);
+  g.userData.root = root;
+  return g;
+}
+
 export function makeCone() {
   const g = new THREE.Group();
   const root = new THREE.Group();

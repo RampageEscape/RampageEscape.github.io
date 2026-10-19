@@ -92,12 +92,13 @@ function resolvePlayers(game, a, b) {
 
 /** 把对方推到刚好不和玩家重叠的位置，避免同一次碰撞每帧重复触发 */
 export function pushApart(player, other, contact) {
+  const snap = (lat, z) => (other.snapTo ? other.snapTo(lat, z) : Object.assign(other, { lateral: lat, z }));
   if (contact.type === 'side') {
-    other.lateral = player.lateral + contact.side * ((player.colW + other.colW) / 2 + 0.05);
+    snap(player.lateral + contact.side * ((player.colW + other.colW) / 2 + 0.05), other.z);
   } else if (contact.type === 'rear') {
-    other.z = player.z - (player.colL + other.colL) / 2 - 0.3;
+    snap(other.lateral, player.z - (player.colL + other.colL) / 2 - 0.3);
   } else {
-    other.z = player.z + (player.colL + other.colL) / 2 + 0.3;
+    snap(other.lateral, player.z + (player.colL + other.colL) / 2 + 0.3);
   }
 }
 

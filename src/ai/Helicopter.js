@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Road, ROAD_HALF } from '../world/Road.js';
-import { GEO, mat } from '../models/Models.js';
+import { mat } from '../models/Models.js';
 import { GLOW_TEX } from '../fx/Particles.js';
 import { clamp, damp, rand } from '../core/utils.js';
 
@@ -10,46 +10,96 @@ const H = {
 };
 const SAMPLE = {};
 
-function part(parent, geo, material, sx, sy, sz, x, y, z) {
-  const m = new THREE.Mesh(geo, material);
-  m.scale.set(sx, sy, sz);
-  m.position.set(x, y, z);
-  m.castShadow = true;
-  parent.add(m);
-  return m;
+/**
+ * 警用直升机模型（流线型）：车床旋转出来的水滴形机身、弧形玻璃座舱、渐细的尾梁、垂直尾翼 + 水平安定面、
+ * 弯头起落橇、四片桨叶 + 旋转模糊盘、尾桨、红蓝警灯、侧面“POLICE 警察”字样、机腹探照灯光柱
+ */
+const HELI_PAINT = new THREE.MeshPhysicalMaterial({ color: 0x14213d, metalness: 0.45, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.1 });
+const HELI_DARK = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.5, metalness: 0.6 });
+const HELI_GLASS = new THREE.MeshPhysicalMaterial({ color: 0x0b1620, roughness: 0.05, metalness: 0.2, clearcoat: 1, transparent: true, opacity: 0.8, envMapIntensity: 1.5 });
+
+function heliLabel() {
+  const c = Object.assign(document.createElement('canvas'), { width: 512, height: 96 });
+  const g = c.getContext('2d');
+  g.font = 'bold 54px "Arial Black", "PingFang TC", "Microsoft JhengHei", sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#ffffff';
+  g.fillText('POLICE 警察', 256, 52);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, side: THREE.DoubleSide });
 }
 
-/** 警用直升机模型：机身、尾梁、主旋翼（叶片 + 模糊圆盘）、尾旋翼、起落架、闪烁警灯、探照灯光柱 */
 function makeHelicopter() {
   const g = new THREE.Group();
   const body = new THREE.Group();
   g.add(body);
-  const navy = mat(0x1d2b4a), white = mat(0xeef1f5), dark = mat(0x15181d), glass = mat(0x2a4a66);
-  const capsule = new THREE.CapsuleGeometry(1, 1, 6, 12).rotateX(Math.PI / 2);
-  part(body, capsule, navy, 1.3, 1.1, 1.6, 0, 0, 0);
-  part(body, capsule, glass, 1.0, 0.85, 0.9, 0, 0.15, 1.3);
-  part(body, GEO.box, white, 2.62, 0.35, 2.2, 0, -0.2, -0.2);
-  part(body, GEO.cylBase, navy, 0.35, 5, 0.35, 0, 0.1, -1.2).rotation.x = -Math.PI / 2;
-  part(body, GEO.box, navy, 0.12, 1.3, 0.8, 0, 0.6, -6);
-  for (const sx of [-1, 1]) {
-    part(body, GEO.box, dark, 0.12, 0.12, 3.2, sx * 1.1, -1.35, 0.1);
-    part(body, GEO.box, dark, 0.1, 0.5, 0.1, sx * 1.1, -1.1, 0.8);
-    part(body, GEO.box, dark, 0.1, 0.5, 0.1, sx * 1.1, -1.1, -0.6);
+  const add = (geo, material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, parent = body) => {
+    const m = new THREE.Mesh(geo, material);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    m.castShadow = true;
+    parent.add(m);
+    return m;
+  };
+  // 机身：沿 Z 轴的水滴形（车床旋转，机头圆、机舱最粗、往后收成尾梁）
+  const prof = [];
+  for (let i = 0; i <= 24; i++) {
+    const t = i / 24, z = -2.6 + t * 5.2;
+    const r = t < 0.75 ? Math.sin(Math.min(1, t / 0.75) * Math.PI * 0.5) ** 0.6 * 1.15 : 1.15 * Math.cos(((t - 0.75) / 0.25) * Math.PI * 0.5) ** 0.8;
+    prof.push(new THREE.Vector2(Math.max(0.001, r), z));
   }
+  const hull = new THREE.LatheGeometry(prof.reverse(), 32).rotateX(Math.PI / 2);
+  hull.scale(1, 0.95, 1);
+  add(hull, HELI_PAINT, 0, 0, 0.2);
+  // 两侧：“POLICE 警察”字样
+  for (const s of [-1, 1]) {
+    const lab = add(new THREE.PlaneGeometry(2.4, 0.45), heliLabel(), s * 1.1, 0.25, -0.3, 0, s * Math.PI / 2);
+    lab.castShadow = false;
+  }
+  // 弧形座舱玻璃（机头上半部）
+  const canopy = add(new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.5), HELI_GLASS, 0, 0.05, 1.45, -0.5);
+  canopy.scale.set(0.98, 0.9, 1.25);
+  // 尾梁（渐细的圆柱）+ 垂直尾翼 + 水平安定面
+  add(new THREE.CylinderGeometry(0.16, 0.34, 5.2, 16).rotateX(Math.PI / 2), HELI_PAINT, 0, 0.35, -4.6);
+  const finShape = new THREE.Shape();
+  finShape.moveTo(0, 0); finShape.lineTo(-0.9, 0); finShape.lineTo(-0.5, 1.6); finShape.lineTo(0.15, 1.6); finShape.closePath();
+  const fin = new THREE.ExtrudeGeometry(finShape, { depth: 0.08, bevelEnabled: false }).rotateY(Math.PI / 2).translate(-0.04, 0, 0);
+  add(fin, HELI_PAINT, 0, 0.4, -6.6);
+  add(new THREE.BoxGeometry(2.0, 0.06, 0.5), HELI_PAINT, 0, 0.42, -5.9);
+  // 发动机整流罩
+  const cowl = add(new THREE.CapsuleGeometry(0.5, 1.4, 6, 16).rotateX(Math.PI / 2), HELI_PAINT, 0, 1.0, -0.3);
+  cowl.scale.set(1, 0.7, 1);
+  // 起落橇：两根长管（前端上翘）+ 四根支柱
+  for (const s of [-1, 1]) {
+    add(new THREE.CylinderGeometry(0.06, 0.06, 3.4, 10).rotateX(Math.PI / 2), HELI_DARK, s * 1.05, -1.45, 0.1);
+    add(new THREE.TorusGeometry(0.3, 0.06, 8, 12, Math.PI / 2), HELI_DARK, s * 1.05, -1.15, 1.8, 0, Math.PI / 2, 0);
+    for (const z of [-0.8, 0.9]) add(new THREE.CylinderGeometry(0.05, 0.05, 0.75, 8), HELI_DARK, s * 0.9, -1.1, z, 0, 0, s * 0.35);
+  }
+  // 主旋翼：桨毂 + 四片桨叶 + 半透明模糊盘
   const rotor = new THREE.Group();
-  rotor.position.y = 1.35;
+  rotor.position.y = 1.5;
   body.add(rotor);
-  for (const r of [0, Math.PI / 2]) part(rotor, GEO.box, dark, 0.35, 0.06, 9, 0, 0, 0).rotation.y = r;
-  const blur = new THREE.Mesh(new THREE.CircleGeometry(4.6, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x222833, transparent: true, opacity: 0.25, depthWrite: false }));
+  add(new THREE.CylinderGeometry(0.12, 0.18, 0.5, 12), HELI_DARK, 0, -0.15, 0, 0, 0, 0, rotor);
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(0, -0.14); bladeShape.lineTo(4.6, -0.1); bladeShape.lineTo(4.8, 0); bladeShape.lineTo(4.6, 0.12); bladeShape.lineTo(0, 0.14); bladeShape.closePath();
+  const blade = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.04, bevelEnabled: false }).rotateX(Math.PI / 2);
+  for (let k = 0; k < 4; k++) add(blade, HELI_DARK, 0, 0.02, 0, 0, (k * Math.PI) / 2, 0.04, rotor);
+  const blur = new THREE.Mesh(new THREE.CircleGeometry(4.8, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x20262e, transparent: true, opacity: 0.18, depthWrite: false }));
   rotor.add(blur);
+  // 尾桨
   const tail = new THREE.Group();
-  tail.position.set(0.25, 0.6, -6);
+  tail.position.set(0.18, 1.2, -6.4);
   body.add(tail);
-  part(tail, GEO.box, dark, 0.05, 1.6, 0.18, 0, 0, 0);
+  for (const r of [0, Math.PI / 2]) add(new THREE.BoxGeometry(0.04, 1.4, 0.14), HELI_DARK, 0, 0, 0, r, 0, 0, tail);
   // 警灯
   const red = new THREE.MeshBasicMaterial(), blue = new THREE.MeshBasicMaterial();
-  part(body, GEO.box, red, 0.3, 0.2, 0.3, -0.5, 1.05, 0.4);
-  part(body, GEO.box, blue, 0.3, 0.2, 0.3, 0.5, 1.05, 0.4);
+  add(new THREE.SphereGeometry(0.14, 12, 8), red, -0.35, 1.3, 0.6);
+  add(new THREE.SphereGeometry(0.14, 12, 8), blue, 0.35, 1.3, 0.6);
+  add(new THREE.SphereGeometry(0.12, 12, 8), red, 0, 0.5, -6.6);
+  // 机腹探照灯
+  add(new THREE.CylinderGeometry(0.2, 0.26, 0.3, 14), HELI_DARK, 0, -1.0, 1.6);
   // 探照灯：从机身打到地面的发光光柱 + 地面光斑
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.4, 2.6, 1, 20, 1, true).translate(0, -0.5, 0),

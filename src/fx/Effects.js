@@ -257,6 +257,40 @@ export class Effects {
     }
   }
 
+  /** 冲刺 / 加速时排气管喷火：车尾两侧的火焰 + 蓝色内焰 */
+  exhaust(p) {
+    const h = p.mesh.rotation.y, pos = p.mesh.position, fx = Math.sin(h), fz = Math.cos(h), lx = fz, lz = -fx;
+    const back = p.length * 0.5 + 0.1;
+    for (const side of [-1, 1]) {
+      v1.set(pos.x - fx * back + lx * side * p.width * 0.28, pos.y + 0.42, pos.z - fz * back + lz * side * p.width * 0.28);
+      this.fire(v1, v2.set(-fx * rand(4, 9), rand(0, 1), -fz * rand(4, 9)), rand(0.1, 0.2), rand(0.45, 0.7), 1.1);
+      if (Math.random() < 0.5) this.glowDot(v1, v2.set(-fx * 3, 0, -fz * 3), 0.08, 0.4, 0x5ad1ff, 'flash');
+    }
+  }
+
+  /** 车子受损：血量低于一半时引擎盖冒烟，低于四分之一时着火 */
+  damageSmoke(p, dt) {
+    const ratio = p.hp / p.maxHp;
+    if (ratio >= 0.5 || !p.alive) return;
+    const h = p.mesh.rotation.y, pos = p.mesh.position, front = p.length * 0.3;
+    v1.set(pos.x + Math.sin(h) * front, pos.y + 1.0, pos.z + Math.cos(h) * front);
+    const rate = (0.5 - ratio) * 40;
+    if (Math.random() < rate * dt) this.smokePuffAt(v1, v2.set(rand(-0.4, 0.4), rand(2, 3.5), rand(-0.4, 0.4)), rand(1, 1.6), rand(0.9, 1.5), ratio < 0.25 ? 0.12 : 0.35, 0.3);
+    if (ratio < 0.25 && Math.random() < 25 * dt) this.fire(v1, v2.set(rand(-0.3, 0.3), rand(1.5, 3), rand(-0.3, 0.3)), rand(0.25, 0.4), rand(0.6, 1.0), 0.9);
+  }
+
+  /** 电磁脉冲：一圈向外扩散的青色冲击波 + 电弧火花 */
+  empWave(pos, radius) {
+    this.decal('ring', pos, 0.9, radius * 2.2, 0x46e6ff);
+    this.decal('ring', pos, 0.6, radius * 1.4, 0xbff4ff);
+    this.glowDot(v1.set(pos.x, pos.y + 1, pos.z), v2.set(0, 0, 0), 0.25, 9, 0x8fe8ff, 'flash');
+    for (let i = 0; i < 70; i++) {
+      const a = rand(0, Math.PI * 2), s = rand(18, 34);
+      this.spark(v1.set(pos.x, pos.y + 0.8, pos.z), v2.set(Math.cos(a) * s, rand(1, 6), Math.sin(a) * s), rand(0.4, 0.7), [0.6, 2.6, 4]);
+    }
+    this.flashLight(pos, 1.2);
+  }
+
   /** 炮弹预警：外圈固定，内圈逐渐扩大到外圈时炮弹落地 */
   warning(pos, duration, radius) {
     this.decal('ring', pos, duration, radius, 0xff2a2a, 'warnRing');
