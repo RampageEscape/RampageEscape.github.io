@@ -18,6 +18,8 @@ import { updateWater } from './world/RoadMaterial.js';
 import { clamp, damp, dampAngle } from './core/utils.js';
 import { t } from './i18n.js';
 import { RoadFeatures } from './world/RoadFeatures.js';
+import { Coins } from './world/Coins.js';
+import { Challenges } from './systems/Challenges.js';
 import { Cannon } from './player/Cannon.js';
 import { Cockpit } from './player/Cockpit.js';
 import { Missiles } from './player/Missiles.js';
@@ -164,6 +166,9 @@ class Game {
     this.players = [this.player];
     this.spawner = new Spawner(this);
     this.features = new RoadFeatures(this);
+    this.coins = new Coins(this);
+    this.challenges = new Challenges(this);
+    this.delayed = []; // 延迟执行的小事件（油桶连环引爆一个接一个）
     this.cannon = new Cannon(this, this.player);
     this.cannons = [this.cannon];
     this.missiles = new Missiles(this);
@@ -257,6 +262,10 @@ class Game {
       onLand: (p, impact) => this.onLand(impact, p),
       onLaunch: (p, kind) => this.onLaunch(p, kind),
       onWater: (p, on) => this.onWaterChange(p, on),
+      onStuntStart: (p) => this.audio?.whoosh(0, 0.5),
+      onStunt: (p, kind, n) => this.onStunt(p, kind, n),
+      onStuntLand: (p, n) => this.onStuntLand(p, n),
+      onStuntCrash: (p) => this.onStuntCrash(p),
     }, { index, skin: index ? 'p2' : null });
   }
 
@@ -326,6 +335,9 @@ class Game {
     }
     this.spawner.reset();
     this.features.reset();
+    this.coins.reset();
+    this.challenges.reset();
+    this.delayed = [];
     for (const c of this.cannons) c.reset();
     this.missiles.reset();
     this.coinDist = 0;
@@ -561,6 +573,7 @@ class Game {
     this.popAt(p, `${t(e.oncoming ? 'oncomingMiss' : 'nearMiss')} +${pts}`, mid, e.oncoming);
     this.audio.whoosh(e.lateral > p.lateral ? -0.6 : 0.6);
     this.missionEvent('nearMiss');
+    this.challenges.event('nearMiss');
   }
 
   checkNearMiss(p) {
@@ -616,6 +629,7 @@ class Game {
     else if (kind === 'emp') this.empBlast(p);
     else if (kind === 'missile') this.fireMissiles(p);
     else if (kind === 'oil') { this.spawner.dropOil(p); this.audio.whoosh(0, 0.6); }
+    else if (kind === 'magnet') p.magnet = 10;
     else p.heal(25);
     p.score += 100;
     this.fx.impact(pos, 0.5);
@@ -632,6 +646,99 @@ class Game {
     this.feel.slowMo(0.55, 0.35);
     this.feel.shake.add(0.12);
     this.popAt(p, t('jump'), p.mesh.position, true);
+    if (!this.versus && (this.stuntHints = (this.stuntHints ?? 0) + 1) <= 3) this.hud.banner('stuntHint'); // 前几次飞起来提示可以做特技
+  }
+
+  // ---------------- 空中特技 ----------------
+  /** 完成一个特技（同一次飞行里第 n 个，分数翻倍） */
+  onStunt(p, kind, n) {
+    const S = CONFIG.thrills.stunt, pts = Math.round((kind === 'roll' ? S.roll : S.flip) * n * RUN.diff.reward);
+    this.bonus(p, pts);
+    p.dashCooldown = Math.max(0, p.dashCooldown - 1.5); // 特技回氮气
+    this.addFever(0.12, p);
+    this.feel.zoomKick += 0.03;
+    this.popAt(p, `${t('stunt_' + kind)}${n > 1 ? ' ×' + n : ''} +${pts}`, p.mesh.position, true);
+    this.challenges.event('stunt');
+    this.missionEvent('stunts');
+  }
+
+  onStuntLand(p, n) {
+    const pts = Math.round(300 * n * RUN.diff.reward);
+    this.bonus(p, pts);
+    this.audio.upgrade(false);
+    this.flashFor(p, '#ffd84a', 0.2);
+    this.fx.decal('ring', p.mesh.position, 0.4, 7, 0xffd84a);
+    this.popAt(p, t('stuntLand', { pts }), p.mesh.position, true);
+  }
+
+  /** 特技没转完就落地：摔一下 */
+  onStuntCrash(p) {
+    p.hit(CONFIG.thrills.stunt.crashDamage, 0, 0.5);
+    this.feel.shake.add(0.4);
+    this.fx.impact(p.mesh.position, 1);
+    this.popAt(p, t('stuntCrash'), p.mesh.position, true);
+  }
+
+  // ---------------- 爆炸油桶 ----------------
+  /** 油桶爆炸：范围内的警车 / 坦克炸飞，民用车被掀翻，附近的油桶一个接一个连环引爆；离太近的玩家也会被炸到 */
+  onBarrelBlast(barrel, by) {
+    const pos = barrel.mesh.position.clone(), sp = this.spawner, R = CONFIG.thrills.barrelRadius;
+    const p = this.isPlayer(by) ? by : this.nearestPlayer(barrel.z);
+    this.fx.explosion(pos, 1.6);
+    this.fx.empWave?.(pos, R * 0.8);
+    this.feel.shake.add(0.4);
+    this.feel.zoomKick += 0.04;
+    this.bloomKick = Math.max(this.bloomKick, 1.2);
+    // 连环计数：1.5 秒内接连炸开的油桶算一串
+    this.blastChain = this.time - (this.lastBlast ?? -9) < 1.5 ? this.blastChain + 1 : 1;
+    this.lastBlast = this.time;
+    for (const c of sp.police) if (c.collidable && c.mesh.position.distanceTo(pos) < R) c.explode(this, p);
+    for (const tk of sp.tanks) if (tk.collidable && tk.mesh.position.distanceTo(pos) < R * 0.8) tk.destroy(this, p);
+    for (const c of sp.traffic) if (c.collidable && c.mesh.position.distanceTo(pos) < R * 0.6) c.knock(barrel, this, 1.2);
+    for (const o of sp.obstacles) {
+      if (o !== barrel && o.collidable && o.mesh.position.distanceTo(pos) < R) {
+        if (o.type === 'barrel') this.delayed.push({ t: 0.12 + Math.random() * 0.1, fn: () => o.detonate(this, p) });
+        else if (o.type !== 'oil' && o.type !== 'spikes') o.knock(barrel, this, 1);
+      }
+    }
+    // 没冲刺、不是重型车辆就撞上去：自己也被炸到（护盾照常能挡）
+    for (const pl of this.players) {
+      if (pl.alive && !pl.airborne && !pl.tier.ram && pl.mesh.position.distanceTo(pos) < 4.5) pl.hit(CONFIG.thrills.barrelDamage, Math.sign(pl.lateral - barrel.lateral) || 1, 0.7);
+    }
+    if (this.state !== 'playing') return;
+    const pts = Math.round(200 * this.blastChain * RUN.diff.reward);
+    this.bonus(p, pts);
+    this.popAt(p, this.blastChain > 1 ? t('chainBlast', { n: this.blastChain }) : t('barrelBoom'), pos, true);
+    this.missionEvent('barrels');
+  }
+
+  // ---------------- 运钞车 ----------------
+  /** 撞运钞车：每撞一下喷一点金币，撞满 3 下（冲刺 / 暴走 / 重型车辆一下就够）就爆开，金币撒满一地 */
+  onCashVanHit(van, p) {
+    if (van.hitCooldown > 0 || van.state === 'wreck' || this.state !== 'playing') return;
+    van.hitCooldown = 0.5;
+    van.hits += p.smashes ? 3 : 1;
+    const pos = van.mesh.position.clone();
+    this.fx.impact(pos, 0.9);
+    this.feel.shake.add(0.2);
+    if (van.hits >= 3) {
+      van.burning = true;
+      van.knock(p, this, 1.3);
+      this.fx.explosion(pos, 1.2);
+      this.coins.burst(van.z, van.lateral, 34, p.speed * 0.95);
+      this.bonus(p, 1500);
+      this.popAt(p, t('vanBusted'), pos, true);
+      this.feel.slowMo(0.45, 0.5);
+      this.bloomKick = Math.max(this.bloomKick, 1.2);
+      this.challenges.event('van');
+    } else {
+      // 普通撞一下：运钞车被顶得往前窜，自己稍微减速
+      this.coins.burst(van.z, van.lateral, 6, p.speed * 0.9);
+      van.snapTo(van.lateral, Math.max(van.z, p.z + (p.colL + van.colL) / 2 + 0.4));
+      van.speed += 7;
+      p.hitSlow = Math.max(p.hitSlow ?? 0, 0.12);
+      this.popAt(p, t('vanHit', { n: van.hits }), pos);
+    }
   }
 
   onLand(impact, p = this.player) {
@@ -781,6 +888,7 @@ class Game {
     this.prog.earn(enemy.type === 'tank' ? 40 : enemy.type === 'swat' ? 10 : 5);
     this.addFever(enemy.type === 'tank' ? 0.4 : 0.12, p);
     this.missionEvent('kills');
+    this.challenges.event('kill');
     if (p.isDashing) this.missionEvent('dashCombo', ++p.dashKills, 'max');
     p.combo++;
     p.comboTimer = CONFIG.score.comboWindow;
@@ -844,8 +952,8 @@ class Game {
     // 第一人称后视镜：每隔几帧渲染一次身后的画面（双人时两面镜子轮流更新）
     if (this.cameraMode === 'first') {
       this.mirrorFrame = (this.mirrorFrame ?? 0) + 1;
-      const every = this.versus ? 3 : 3, i = this.versus ? Math.floor(this.mirrorFrame / every) % 2 : 0;
-      if (this.mirrorFrame % every === 0) {
+      const every = this.versus ? 3 : 2, i = this.versus ? Math.floor(this.mirrorFrame / every) % 2 : 0;
+      if (this.mirrorFrame % every === 0 && this.cockpits[i].hasMirror) {
         const p = this.players[i];
         this.cockpits[i].renderMirror(this.renderer, this.scene, p.mesh.position, p.mesh.rotation.y);
       }
@@ -910,6 +1018,12 @@ class Game {
     this.levels.update(this.leader.z, this.trailZ);
     if (this.state !== 'title') this.spawner.update(dt);
     this.features.update(dt);
+    this.coins.update(dt);
+    this.challenges.update(dt);
+    for (let i = this.delayed.length - 1; i >= 0; i--) {
+      const d = this.delayed[i];
+      if ((d.t -= dt) <= 0) { this.delayed.splice(i, 1); d.fn(); }
+    }
     for (const c of this.cannons.slice(0, this.players.length)) c.update(dt);
     if (this.state === 'playing') this.updatePlaying(dt);
     this.missiles.update(dt);
@@ -964,7 +1078,13 @@ class Game {
 
   /** 双人对战时两人共用一个速度等级（按分数高的那位算），保证公平 */
   paceScore() {
-    return Math.max(...this.players.map((p) => p.score));
+    return Math.max(...this.players.map((p) => p.score - p.thrill * 0.6)); // 金币 / 特技 / 挑战的奖励分只算一部分，免得一下子提速太快
+  }
+
+  /** 刺激玩法的奖励分（记一笔 thrill，速度分级只算一部分） */
+  bonus(p, pts) {
+    p.score += pts;
+    p.thrill += pts;
   }
 
   /** 每位玩家每帧的结算：分数、连击、被捕条、擦边 */
@@ -1209,8 +1329,9 @@ class Game {
    */
   updateFirstPerson(dt, rig, p) {
     const cam = rig.cam, m = p.mesh, u = m.userData, cockpit = this.cockpits[rig === this.rigs[0] ? 0 : 1];
-    // 眼睛高度：轿跑约 1.15 米；船站在驾驶台上更高；坦克从炮塔舱口看出去
-    const eye = (u.boat ? 1.55 : p.tier.cannon ? 2.5 : p.tier.ram ? 1.5 : 1.15) * p.sizeMul;
+    // 每种车（和船）都有自己的车内；眼睛高度、视野跟着车内走
+    cockpit.setStyle(p.onWater ? 'boat' : p.tier.id, this.hoodColor(p));
+    const eye = cockpit.style.eye * p.sizeMul;
     const h = m.rotation.y, fwd = 0.1 * p.length * p.sizeMul;
     cam.position.set(m.position.x + Math.sin(h) * fwd, m.position.y + eye, m.position.z + Math.cos(h) * fwd);
     cam.position.addScaledVector(this.feel.shake.offset, 0.2);
@@ -1222,8 +1343,10 @@ class Game {
     rig.target.x = damp(rig.target.x, ahead.x, 10, dt);
     rig.target.z = damp(rig.target.z, ahead.z, 10, dt);
     cam.lookAt(rig.target.x, m.position.y + eye * 0.86, rig.target.z);
-    cam.rotateZ(-(p.root?.rotation.z ?? 0) * 0.6 + this.feel.shake.roll * 0.3);
-    const fov = 70 + (p.isDashing || p.boosting ? 12 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 10;
+    cam.rotateZ(-(p.baseRoll ?? 0) * 0.6 + this.feel.shake.roll * 0.3);
+    if (p.stuntRoll) cam.rotateZ(-p.stuntRoll); // 空中特技：第一人称也跟着车身一起转
+    if (p.stuntFlip) cam.rotateX(-p.stuntFlip);
+    const fov = cockpit.style.fov + (p.isDashing || p.boosting ? 12 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 10;
     cam.fov = damp(cam.fov, fov / this.feel.zoom, 6, dt);
     cam.updateProjectionMatrix();
     // 驾驶舱：方向盘跟着变道和弯道转，仪表显示车速 / 转速 / 档位
@@ -1231,7 +1354,6 @@ class Game {
     rig.lastH = hd;
     const accel = (p.speed - rig.lastSpeed) / Math.max(dt, 1e-3);
     rig.lastSpeed = p.speed;
-    cockpit.setPaint(this.hoodColor(p));
     cockpit.update(dt, cam, { steer: clamp(p.latVel * 0.06 + turn * 2, -1, 1), speed: p.speed, boost: p.isDashing || p.boosting, accel });
   }
 
@@ -1239,7 +1361,7 @@ class Game {
   hoodColor(p) {
     const P1 = { sports: 0xb3140f, muscle: 0x1a1b1e, armored: 0x55603f, tank: 0xb8322a };
     const P2 = { sports: 0xe6e3dc, muscle: 0xe6e3dc, armored: 0x4a78c8, tank: 0x2f5fb8 };
-    if (p.onWater && p.tier.id !== 'armored' && p.tier.id !== 'tank') return p.index ? 0xf4f6f8 : P1[p.tier.id];
+    if (p.onWater) return p.tier.id === 'armored' ? (p.index ? 0x3c5a8c : 0x4f5a3c) : p.tier.id === 'tank' ? 0x55595e : 0xf2f2ef; // 船头甲板
     return (p.index ? P2 : P1)[p.tier.id];
   }
 
@@ -1308,7 +1430,7 @@ Promise.race([Promise.all([loadModels(), loadEnvModels()]), new Promise((r) => s
   loadHero(window.game.renderer).then(() => {
     window.game.spawner.upgradeModels(); // 警车、私家车换成真车
     for (const p of window.game.players.concat(window.game.player2 ?? [])) {
-      if (p.tierIndex <= 1 && !p.onWater) { p.setTier(p.tierIndex); p.syncMesh(0); }
+      if (p.tierIndex <= 2 && !p.onWater) { p.setTier(p.tierIndex); p.syncMesh(0); }
     }
     if (window.game.player2 && !window.game.versus) window.game.scene.remove(window.game.player2.mesh);
   }).catch((e) => console.warn('[hero] 高精度车模加载失败，继续使用普通车模', e));

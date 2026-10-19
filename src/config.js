@@ -52,10 +52,22 @@ export const CONFIG = {
   // 路上的设施：道具、跳台、改装站
   features: {
     pickupFirst: 180, pickupMinGap: 140, pickupMaxGap: 230,
-    rampFirst: 380, rampMinGap: 380, rampMaxGap: 700,
-    rampBeforeBarricade: 0.4, // 路障前放跳台的概率
-    jumpPower: 13,
+    rampFirst: 300, rampMinGap: 260, rampMaxGap: 480,
+    rampBeforeBarricade: 0.45, // 路障前放跳台的概率
+    jumpPower: 15, // 空中约 1 秒，够做一两个特技
     stationAfterJunction: 200, // 每个路口之后多少米放一个改装站
+  },
+  // 刺激玩法：金币、爆炸油桶、空中特技、限时挑战
+  thrills: {
+    coinGap: [70, 130], // 金币阵之间的距离（米）
+    coinRushGap: [24, 34], // 挑战“金币狂潮”期间
+    barrelGap: [230, 380], // 路边爆炸油桶堆的间距
+    barricadeBarrel: 0.45, // 路障里横停的警车前面放油桶的概率
+    barrelRadius: 10, // 油桶爆炸范围：范围内的警车全部炸飞，油桶连环引爆
+    barrelDamage: 12, // 没冲刺就撞上油桶，玩家自己也会被炸到
+    stunt: { roll: 600, flip: 900, rollTime: 0.45, flipTime: 0.55, crashDamage: 10 },
+    challengeFirst: 28, // 开局多少秒后第一个限时挑战
+    challengeGap: [36, 50],
   },
   // 玩家坦克的主炮
   cannon: { cooldown: 0.9, radius: 3.6, speed: 85, range: 60 },

@@ -24,6 +24,9 @@ const MISSIONS = [
   { id: 'rampage', base: 1, step: 1, reward: 80 },
   { id: 'dashCombo', base: 3, step: 1, reward: 90 },
   { id: 'junctions', base: 3, step: 1, reward: 50 },
+  { id: 'stunts', base: 2, step: 1, reward: 70 },
+  { id: 'barrels', base: 3, step: 2, reward: 60 },
+  { id: 'challenges', base: 1, step: 1, reward: 90 },
 ];
 
 export class Progression {

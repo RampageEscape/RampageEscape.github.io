@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 import { laneOffset, nearestLane } from '../world/Road.js';
 import { classifyContact, pushApart } from '../systems/Collisions.js';
 import { Vehicle } from '../entities/Vehicle.js';
-import { makeCivilian, makeBarrier, makeCone, makeSpikeStrip, makeOilSlick } from '../models/Models.js';
+import { makeCivilian, makeBarrier, makeCone, makeSpikeStrip, makeOilSlick, makeBarrel, makeCashVan } from '../models/Models.js';
 import { makeCivilianBoat, makeBuoy, makeFloatBarrier, makeSeaMine } from '../models/Boats.js';
 import { RUN } from '../data/difficulty.js';
 import { damp, rand } from '../core/utils.js';
@@ -88,7 +88,14 @@ export class Civilian extends Vehicle {
     this.sync();
   }
 
+  /** 运钞车：只有玩家能把它撞爆，警车撞上来 / 爆炸波及都没事 */
+  knock(by, game, strength) {
+    if (this.type === 'cashvan' && !game.isPlayer(by)) return;
+    super.knock(by, game, strength);
+  }
+
   onPlayerCollision(player, game) {
+    if (this.type === 'cashvan') return game.onCashVanHit?.(this, player);
     if (player.smashes) {
       this.knock(player, game, this.oncoming ? 1.6 : 1.2);
       if (!player.isDashing) player.ramImpact(this.oncoming ? 3 : 1);
@@ -126,6 +133,7 @@ const OBSTACLES = {
   barrier: { make: makeBarrier, boat: makeFloatBarrier, L: 0.7, W: 3.2 },
   spikes: { make: makeSpikeStrip, boat: makeSeaMine, L: 0.9, W: 3.3 },
   oil: { make: makeOilSlick, boat: makeOilSlick, L: 4, W: 6.4 }, // 玩家丢下的油渍：追上来的警车会打滑翻车
+  barrel: { make: makeBarrel, boat: makeBarrel, L: 1.0, W: 1.0 }, // 爆炸油桶：一碰就炸，附近的警车和油桶一起炸
 };
 export class Obstacle extends Vehicle {
   constructor(kind) {
@@ -143,6 +151,16 @@ export class Obstacle extends Vehicle {
     this.spawn(scene, z, lateral, 0);
     this.mode = 'static';
     this.spiked = [];
+    this.blown = false;
+  }
+
+  /** 油桶爆炸：自己被炸飞，范围伤害交给 Game 处理（连锁引爆、炸警车） */
+  detonate(game, by) {
+    if (this.state === 'wreck' || this.blown) return;
+    this.blown = true;
+    this.burning = true;
+    this.launch(new THREE.Vector3(rand(-4, 4), rand(13, 19), (by?.speed ?? 10) * 0.4), new THREE.Vector3(rand(-12, 12), rand(-12, 12), rand(-12, 12)));
+    game.onBarrelBlast?.(this, by);
   }
 
   update(dt, { fx }) {
@@ -152,6 +170,7 @@ export class Obstacle extends Vehicle {
 
   onPlayerCollision(player, game) {
     const dash = player.smashes;
+    if (this.type === 'barrel') return this.detonate(game, player);
     if (this.type === 'oil') {
       // 自己丢的油渍对自己无效；双人对战时对手开上去会打滑
       if (this.owner === player || this.spiked[player.index]) return;
@@ -175,6 +194,7 @@ export class Obstacle extends Vehicle {
   }
 
   knock(by, game, s = 1) {
+    if (this.type === 'barrel') return this.detonate(game, by);
     if (this.state === 'wreck' || this.type === 'oil' || (this.type === 'spikes' && !this.onWater)) return; // 钉刺带、油渍贴在地上，撞不飞
     this.launch(
       new THREE.Vector3(rand(-6, 6), rand(7, 12) * s, (by?.speed ?? 20) * 0.9),

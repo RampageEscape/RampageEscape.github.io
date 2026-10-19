@@ -6,7 +6,7 @@ import { Civilian, Obstacle } from '../ai/Traffic.js';
 import { TankAI, Shells } from '../ai/TankAI.js';
 import { RoadWarnings } from '../fx/RoadWarnings.js';
 import { Helicopter } from '../ai/Helicopter.js';
-import { makePoliceCar, makeCivilian } from '../models/Models.js';
+import { makePoliceCar, makeCivilian, makeSwat, makeCashVan } from '../models/Models.js';
 import { RUN } from '../data/difficulty.js';
 import { rand, randInt } from '../core/utils.js';
 
@@ -31,6 +31,8 @@ export class Spawner {
       cone: pool(() => new Obstacle('cone'), 8),
       spikes: pool(() => new Obstacle('spikes'), 4),
       oil: pool(() => new Obstacle('oil'), 2),
+      barrel: pool(() => new Obstacle('barrel'), 8),
+      cashvan: pool(() => Object.assign(new Civilian(), { type: 'cashvan' }), 0),
       tank: pool(() => new TankAI(), 1),
     };
     this.police = [];
@@ -50,9 +52,11 @@ export class Spawner {
   /** 高精度车模加载完成：把对象池里（包括正在路上跑的）警车、私家车换成真车模型 */
   upgradeModels() {
     for (const c of [...this.pools.police.free, ...this.police.filter((c) => c.type === 'police')]) c.replaceCarMesh(makePoliceCar());
+    for (const c of [...this.pools.swat.free, ...this.police.filter((c) => c.type === 'swat')]) c.replaceCarMesh(makeSwat());
     for (const c of [...this.pools.civilian.free, ...this.traffic]) {
       if (['sedan', 'taxi', 'suv', 'hatchback-sports'].includes(c.kind?.[0])) c.replaceCarMesh(makeCivilian(undefined, c.kind));
     }
+    for (const c of [...this.pools.cashvan.free, ...this.traffic.filter((c) => c.type === 'cashvan')]) c.replaceCarMesh(makeCashVan());
   }
 
   reset() {
@@ -67,6 +71,8 @@ export class Spawner {
     this.barricades = [];
     this.nextBarricadeZ = 320;
     this.nextTankZ = 0;
+    this.nextBarrelZ = 260;
+    this.frenzy = 0; // 挑战“清剿警车”：剩余秒数，期间警车刷得更多更快
     this.policeTimer = 2.5;
     this.oncomingTimer = 6;
     this.roleIdx = 0;
@@ -105,11 +111,13 @@ export class Spawner {
   spawnLogic(dt, p, stars) {
     const D = RUN.diff, Hc = CONFIG.heat, heat = RUN.heat - 1; // heat：速度等级越高越难
     const heatMul = 1 + Hc.police * heat;
-    const want = Math.min(D.policeMax + Math.floor(heat / 2), Math.round((S.policeBase + stars * S.policePerStar) * D.policeMul * heatMul));
+    this.frenzy = Math.max(0, this.frenzy - dt);
+    const frenzy = this.frenzy > 0 ? 3 : 0;
+    const want = Math.min(D.policeMax + Math.floor(heat / 2), Math.round((S.policeBase + stars * S.policePerStar) * D.policeMul * heatMul)) + frenzy;
     const chasing = this.police.filter((c) => c.mode === 'chase' && c.collidable).length;
     if ((this.policeTimer -= dt) <= 0 && chasing < want) {
       this.spawnChaser(p, stars);
-      this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2) / D.policeMul / heatMul;
+      this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2) / D.policeMul / heatMul / (frenzy ? 2.5 : 1);
     }
     // 逆行来车：从速度 LV2 开始，越往后越频繁
     if (RUN.heat >= Hc.oncomingFrom && (this.oncomingTimer -= dt) <= 0) {
@@ -130,6 +138,12 @@ export class Spawner {
       this.spawnBarricade(this.nextBarricadeZ, stars);
       const B = CONFIG.barricade;
       this.nextBarricadeZ += rand(B.minGap, B.maxGap) * (1.1 - stars * 0.08) * D.barricade;
+    }
+    // 爆炸油桶：每隔一段路在路边车道放一小堆（把追兵引过去撞，或者冲刺撞过去连环爆炸）
+    if (p.z + 170 > this.nextBarrelZ && this.nextBarrelZ < limit) {
+      const z = this.nextBarrelZ;
+      if (!this.inBarricadeZone(z) && !Road.isWater(z - 20) && !Road.isWater(z + 20) && !Road.path.nearJunction(z - 10, z + 10, 30, 40) && !this.game.features?.isNear(this.game.features.stations, z, 50)) this.spawnBarrels(z);
+      this.nextBarrelZ += rand(...CONFIG.thrills.barrelGap);
     }
     // 直升机 Boss：3 星以后每隔一段距离来一次
     if (stars >= D.heliFrom && !this.heli.active && p.z > this.nextHeliZ && limit - p.z > 200) {
@@ -164,6 +178,27 @@ export class Spawner {
     c.spawnOncoming(this.scene, z, lane, rand(...CONFIG.heat.oncomingSpeed) * RUN.pace);
     this.traffic.push(c);
     this.rebuild();
+  }
+
+  spawnBarrels(z) {
+    const lane = Math.random() < 0.7 ? (Math.random() < 0.5 ? 0 : LANES - 1) : randInt(1, LANES - 2);
+    const lat = laneOffset(lane), n = randInt(2, 4);
+    for (let k = 0; k < n; k++) this.addStatic('barrel', z + (k % 2) * 1.1 + Math.floor(k / 2) * 1.2, lat + (k % 2 ? 0.55 : -0.55) * (n > 2 ? 1 : 0.3));
+    this.rebuild();
+  }
+
+  /** 挑战“抢劫运钞车”：在前方生成一辆金色运钞车 */
+  spawnCashVan(z, speed) {
+    const lane = randInt(0, LANES - 1);
+    const van = this.pools.cashvan.get();
+    if (!van.mesh.userData.icon) van.replaceCarMesh(makeCashVan());
+    van.spawnCivilian(this.scene, z, lane, speed);
+    van.hits = 0;
+    van.hitCooldown = 0;
+    for (const c of this.traffic) if (Math.abs(c.z - z) < 20 && Math.abs(c.lateral - van.lateral) < 3) c.removeMe = true;
+    this.traffic.push(van);
+    this.rebuild();
+    return van;
   }
 
   laneFree(z, lat, range) {
@@ -215,6 +250,7 @@ export class Spawner {
         const cop = this.pools[type].get();
         cop.spawnParked(this.scene, z + rand(-1, 1), lat, (i % 2 ? 1 : -1) * rand(1.1, 1.4));
         this.police.push(cop);
+        if (Math.random() < CONFIG.thrills.barricadeBarrel) this.addStatic('barrel', z - 2.6, lat + rand(-0.7, 0.7)); // 警车前面的油桶：冲刺撞过去连警车一起炸
       } else {
         this.addStatic('barrier', z, lat);
       }

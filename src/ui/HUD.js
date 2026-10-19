@@ -305,7 +305,7 @@ export class HUD {
     el.fever.style.width = `${(p.rampage > 0 ? 1 : game.fever) * 100}%`;
     el.fever.parentElement.classList.toggle('full', p.rampage > 0);
     el.coins.textContent = `🪙 ${this.prog.runCoins}`;
-    el.shields.textContent = '🛡️'.repeat(p.shields);
+    el.shields.textContent = '🛡️'.repeat(p.shields) + (p.magnet > 0 ? '🧲' : '');
     el.bust.style.width = `${game.bust * 100}%`;
     el.bust.parentElement.classList.toggle('active', game.bust > 0.01);
     if (game.stars !== this.lastStars) {

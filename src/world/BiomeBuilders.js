@@ -3,6 +3,7 @@ import { CONFIG } from '../config.js';
 import { ROAD_HALF, WATER_Y } from './Road.js';
 import { GEO, mat } from '../models/Models.js';
 import { envModel } from '../models/ModelLibrary.js';
+import { LAMP, PINE_SNOW, PALM, CONTAINER, makeLighthouse, makeSailboat, makeGantryCrane, makeCargoShip } from '../models/Props.js';
 import { pick } from '../core/utils.js';
 import { buildNeon, NEON_PAL } from './NeonBuilder.js';
 import { roadMaterial, sidewalks, groundMaterial, waterMaterial } from './RoadMaterial.js';
@@ -24,7 +25,6 @@ export const PAL = {
   neon: { ...NEON_PAL, edge: 0xe8c547 },
   sea: { water: 0x1f6f9a },
 };
-const FOLIAGE = [0x6d7d2f, 0x5f7230, 0x7e8a36, 0x4f6a2e];
 const ROCKS = [0x9c9a92, 0x8a8880, 0xb0aea6];
 const CONTAINERS = [0xc0392b, 0x2e6da4, 0x2f8a57, 0xe67e22, 0x8e44ad, 0x7f8c8d, 0xd4ac0d, 0x16a085];
 const WHITE = () => mat(0xffffff);
@@ -70,6 +70,13 @@ function rock(ctx, z, lat, { w, h, d, ry = 0, color = 0xffffff, base = 0, r = Ma
   const cliff = envModel('cliff');
   if (cliff) return ctx.prop(cliff.geo, cliff.mat, z, lat, { y: base - h * 0.06, ry, sx: w, sy: h, sz: d, color, r, align: false, force });
   return ctx.prop(GEO.rock, WHITE(), z, lat, { y: base + h * 0.35, ry, sx: w * 0.6, sy: h * 0.6, sz: d * 0.6, color, r, align: false, force });
+}
+
+/** 路灯：局部 -X 是灯臂方向，左边（s=+1）直接用，右边（s=-1）转 180° */
+function streetLamp(ctx, z, lat, s, y = 0, scale = 1) {
+  const opts = { y, ry: s > 0 ? 0 : Math.PI, sx: scale, sy: scale, sz: scale, r: 0.4 };
+  if (!ctx.prop(LAMP.metal, LAMP.metalMat, z, lat, opts)) return;
+  ctx.prop(LAMP.light, LAMP.lightMat, z, lat, { ...opts, force: true });
 }
 
 /** 路边两色小桩 */
@@ -140,15 +147,10 @@ function buildCity(ctx) {
   }
   fb.build(ctx.extraMeshes);
 
-  // 路灯（两侧，每 20 米）
+  // 路灯（两侧，每 20 米）：弧形灯臂伸向马路
   for (let z = Math.ceil(z0 / 20) * 20; z < z1; z += 20) {
     if (inCross(z)) continue;
-    for (const s of [-1, 1]) {
-      const lat = s * (ROAD_HALF + 0.8);
-      if (!ctx.prop(GEO.cylBase, mat(0x55585c), z, lat, { y: 0.16, sx: 0.22, sy: 6.4, sz: 0.22, r: 0.3 })) continue;
-      ctx.prop(GEO.boxBase, mat(0x55585c), z, lat - s * 0.9, { y: 6.3, sx: 1.9, sy: 0.14, sz: 0.18, force: true });
-      ctx.prop(GEO.boxBase, mat(0xfff3c4, { emissive: 0xffe08a }), z, lat - s * 1.7, { y: 6.1, sx: 0.7, sy: 0.18, sz: 0.4, force: true });
-    }
+    for (const s of [-1, 1]) streetLamp(ctx, z, s * (ROAD_HALF + 0.8), s, 0.16);
   }
 
   // 电线杆 + 电线（只在笔直且远离路口的路段，保证电线不会穿过别的路）
@@ -178,15 +180,10 @@ function buildCity(ctx) {
 }
 
 // ---------------------------------------------------------------- 雪地森林
+/** 松树：多层带锯齿、枝头积雪的精细模型（一个实例 = 一棵树），颜色略有深浅变化 */
 function pine(ctx, s, lat, sc, rng) {
-  const ry = rng() * 6.28, color = pick(FOLIAGE, rng);
-  const w = ctx.prop(GEO.cylBase, mat(0x5b4030), s, lat, { ry, sx: 0.5 * sc, sy: 1.6 * sc, sz: 0.5 * sc, r: 2.2 * sc, align: false });
-  if (!w) return;
-  for (let k = 0; k < 3; k++) {
-    const r = (2.2 - k * 0.55) * sc, h = 2.6 * sc, y = (1.2 + k * 1.5) * sc;
-    ctx.addAt(w, GEO.coneBase, WHITE(), { y, ry, sx: r, sy: h, sz: r, color });
-    ctx.addAt(w, GEO.coneBase, mat(0xf3f6f8), { y: y + h * 0.55, ry, sx: r * 0.55, sy: h * 0.45, sz: r * 0.55 });
-  }
+  const k = 0.85 * sc, shade = 0.85 + rng() * 0.3;
+  ctx.prop(PINE_SNOW.geo, PINE_SNOW.mat, s, lat, { ry: rng() * 6.28, sx: k * (0.9 + rng() * 0.2), sy: k, sz: k * (0.9 + rng() * 0.2), r: 2.2 * sc, align: false, color: [shade, shade, shade] });
 }
 
 function buildForest(ctx) {
@@ -249,16 +246,11 @@ function buildDesert(ctx) {
 }
 
 // ---------------------------------------------------------------- 海滨公路
+/** 棕榈树：弯曲的环纹树干 + 九片羽状叶（贴图 + 透明裁剪） */
 function palm(ctx, s, lat, sc, rng) {
-  const h = 6.5 * sc, ry0 = rng() * 6.28;
-  const w = ctx.prop(GEO.cylBase, mat(0x8b6b45), s, lat, { sx: 0.45 * sc, sy: h, sz: 0.45 * sc, r: 2.5 * sc, align: false });
-  if (!w) return;
-  for (let k = 0; k < 6; k++) {
-    // 叶子沿局部 Z 轴伸出：绕 Y 旋转 ry 后局部 Z 的世界方向是 (sin ry, 0, cos ry)
-    const ry = ry0 + (k * Math.PI * 2) / 6;
-    ctx.addAt({ x: w.x + Math.sin(ry) * 1.5 * sc, z: w.z + Math.cos(ry) * 1.5 * sc }, GEO.boxBase, mat(0x3f8f3a), { y: h - 0.35 * sc, ry, sx: 0.9 * sc, sy: 0.18 * sc, sz: 3.2 * sc });
-  }
-  ctx.addAt(w, GEO.rock, mat(0x6b4a2a), { y: h - 0.2 * sc, sx: 0.5 * sc, sy: 0.5 * sc, sz: 0.5 * sc });
+  const ry = rng() * 6.28, k = sc * 0.95;
+  const w = ctx.prop(PALM.trunk, PALM.trunkMat, s, lat, { ry, sx: k, sy: k, sz: k, r: 2.5 * sc, align: false });
+  if (w) ctx.addAt(w, PALM.fronds, PALM.frondMat, { ry, sx: k, sy: k, sz: k, color: [0.9 + rng() * 0.2, 0.9 + rng() * 0.2, 0.85] });
 }
 
 function buildCoast(ctx) {
@@ -308,22 +300,16 @@ function buildHarbor(ctx) {
       const len = 6.1, rows = 1 + Math.floor(rng() * 2), zm = z + len / 2;
       for (let r = 0; r < rows; r++) {
         const stacks = s < 0 && !CONFIG.world.tallNear ? 1 : 1 + Math.floor(rng() * 3), colors = [pick(CONTAINERS, rng), pick(CONTAINERS, rng), pick(CONTAINERS, rng)];
-        const w = ctx.prop(GEO.boxBase, WHITE(), zm, s * (ROAD_HALF + SW + 3.3 + r * 2.7), { sx: 2.45, sy: 2.55, sz: len, color: colors[0], r: 3.2 });
-        if (w) for (let k = 1; k < stacks; k++) ctx.addAt(w, GEO.boxBase, WHITE(), { y: k * 2.6, sx: 2.45, sy: 2.55, sz: len, color: colors[k], align: true });
+        const w = ctx.prop(CONTAINER.geo, CONTAINER.mat, zm, s * (ROAD_HALF + SW + 3.3 + r * 2.7), { sx: 2.45, sy: 2.55, sz: len, color: colors[0], r: 3.2 });
+        if (w) for (let k = 1; k < stacks; k++) ctx.addAt(w, CONTAINER.geo, CONTAINER.mat, { y: k * 2.6, sx: 2.45, sy: 2.55, sz: len, color: colors[k], align: true });
       }
       z += len + 0.4 + (rng() < 0.25 ? 6 : 0);
     }
   }
-  // 龙门吊（远离镜头的一侧）
+  // 龙门吊（远离镜头的一侧，跨在集装箱堆上）
   if (rng() < 0.4) {
-    const z = z0 + 8 + rng() * (L - 16), yellow = mat(0xe0b020), mid = ROAD_HALF + SW + 10.25;
-    if (ctx.prop(GEO.boxBase, yellow, z, mid, { y: 16, sx: 19, sy: 1.2, sz: 1.2, r: 10 })) {
-      for (const dz of [0, 7]) {
-        for (const lat of [ROAD_HALF + SW + 1.5, ROAD_HALF + SW + 19]) ctx.prop(GEO.boxBase, yellow, z + dz, lat, { sx: 0.9, sy: 16, sz: 0.9, force: true });
-        if (dz) ctx.prop(GEO.boxBase, yellow, z + dz, mid, { y: 16, sx: 19, sy: 1.2, sz: 1.2, force: true });
-      }
-      ctx.prop(GEO.boxBase, mat(0xc0392b), z + 3.5, ROAD_HALF + SW + 6, { y: 14.6, sx: 2.4, sy: 1.4, sz: 8.2, force: true });
-    }
+    const z = z0 + 8 + rng() * (L - 16), w = ctx.at(z, ROAD_HALF + SW + 10.25);
+    if (!ctx.isBlocked(w.x, w.z, 12)) placeModel(ctx, CRANE, w.x, 0, w.z, w.h);
   }
   // 仓库
   for (const s of [-1, 1]) {
@@ -333,11 +319,8 @@ function buildHarbor(ctx) {
     const w = ctx.prop(GEO.boxBase, WHITE(), z, lat, { sx: depth, sy: h, sz: len, color, r: Math.max(depth, len) * 0.5 });
     if (w) ctx.addAt(w, GEO.boxBase, mat(0x5a5f66), { y: h, sx: depth + 0.4, sy: 0.5, sz: len + 0.4, align: true });
   }
-  // 高杆灯
-  for (let z = Math.ceil(z0 / 30) * 30; z < z1; z += 30) {
-    const w = ctx.prop(GEO.cylBase, mat(0x6b6f75), z, ROAD_HALF + SW - 0.5, { y: 0.12, sx: 0.3, sy: 11, sz: 0.3, r: 0.5 });
-    if (w) ctx.addAt(w, GEO.boxBase, mat(0xfff3c4, { emissive: 0xffe08a }), { y: 11, sx: 1.4, sy: 0.4, sz: 1.4 });
-  }
+  // 港口大路灯（比城市的高一点）
+  for (let z = Math.ceil(z0 / 30) * 30; z < z1; z += 30) streetLamp(ctx, z, ROAD_HALF + SW - 0.5, 1, 0.12, 1.3);
 }
 
 // ---------------------------------------------------------------- 海上追逐
@@ -424,38 +407,18 @@ function buildSea(ctx) {
       const w = rock(ctx, z, lat, { w: sx * 1.5, h: sy * 1.25, d: sz * 1.5, base: W - 1, ry: rng() * 6, color: pick([0xc8c0b6, 0xb8b0a6, 0xd6cfc4], rng), r: Math.max(sx, sz) });
       if (w) {
         ctx.addAt(w, GEO.rock, mat(0x4f7a3a), { y: W - 1 + sy * 1.05, ry: rng() * 6, sx: sx * 0.6, sy: sy * 0.25, sz: sz * 0.6 });
-        if (rng() < 0.35) {
-          const top = W - 1 + sy * 1.1;
-          for (let k = 0; k < 4; k++) ctx.addAt(w, GEO.cylBase, mat(k % 2 ? 0xd62a1e : 0xf4f4f0), { y: top + k * 1.6, sx: 1.6 - k * 0.12, sy: 1.6, sz: 1.6 - k * 0.12 });
-          ctx.addAt(w, GEO.boxBase, mat(0xfff3c4, { emissive: 0xffe08a }), { y: top + 6.4, sx: 1, sy: 1, sz: 1 });
-          ctx.addAt(w, GEO.coneBase, mat(0x2a2c30), { y: top + 7.4, sx: 0.9, sy: 0.9, sz: 0.9 });
-        }
+        if (rng() < 0.35) placeModel(ctx, LIGHTHOUSE, w.x, W - 1 + sy * 1.05, w.z, rng() * 6);
       }
     }
-    // 远处的货轮：船身 + 一排排集装箱 + 船尾驾驶楼
+    // 远处的货轮（完整模型：尖船头、红色水线、集装箱、驾驶楼）
     if (rng() < 0.3) {
-      const z = z0 + rng() * 40, lat = s * (ROAD_HALF + 50 + rng() * 40), hullC = pick([0x2b3f5c, 0x7a2a22, 0x2f4a3a, 0x3a3a3e], rng);
-      const w = ctx.prop(GEO.boxBase, mat(hullC), z, lat, { y: W - 2, sx: 11, sy: 5, sz: 64, r: 34 });
-      if (w) {
-        ctx.addAt(w, GEO.boxBase, mat(0xb8b2a6), { y: W + 3, sx: 10.5, sy: 0.4, sz: 63, align: true });
-        for (let row = -3; row <= 2; row++) {
-          for (let tier = 0; tier < 2 + Math.floor(rng() * 2); tier++) {
-            const off = row * 8.5;
-            ctx.addAt({ x: w.x + Math.sin(w.h) * off, z: w.z + Math.cos(w.h) * off, h: w.h }, GEO.boxBase, WHITE(), { y: W + 3.4 + tier * 2.6, sx: 9.5, sy: 2.5, sz: 6, color: pick(CONTAINERS, rng), align: true });
-          }
-        }
-        const back = -27;
-        ctx.addAt({ x: w.x + Math.sin(w.h) * back, z: w.z + Math.cos(w.h) * back, h: w.h }, GEO.boxBase, mat(0xf2f2ee), { y: W + 3.4, sx: 9, sy: 8, sz: 6, align: true });
-      }
+      const z = z0 + rng() * 40, w = ctx.at(z, s * (ROAD_HALF + 50 + rng() * 40));
+      if (!ctx.isBlocked(w.x, w.z, 34)) placeModel(ctx, pick(SHIPS, rng), w.x, W - 2, w.z, w.h + (rng() < 0.5 ? Math.PI : 0));
     }
-    // 帆船
+    // 帆船（完整模型：船身、甲板、桅杆、鼓起的主帆和前帆）
     if (rng() < 0.45) {
-      const z = z0 + rng() * 40, lat = s * (ROAD_HALF + 12 + rng() * 22), ry = rng() * 6;
-      const w = ctx.prop(GEO.boxBase, mat(0xf2f2ee), z, lat, { y: W - 0.3, ry, sx: 1.6, sy: 0.7, sz: 5, r: 3, align: false });
-      if (w) {
-        ctx.addAt(w, GEO.cylBase, mat(0xcfd2d6), { y: W + 0.4, ry, sx: 0.12, sy: 7, sz: 0.12 });
-        ctx.addAt(w, SAIL, mat(pick([0xf7f7f2, 0xf7f7f2, 0xd84a1e, 0x2f6fb0], rng)), { y: W + 0.9, ry, sx: 0.05, sy: 6, sz: 2.2 });
-      }
+      const z = z0 + rng() * 40, lat = s * (ROAD_HALF + 12 + rng() * 22), w = ctx.at(z, lat);
+      if (!ctx.isBlocked(w.x, w.z, 4)) placeModel(ctx, pick(SAILBOATS, rng), w.x, W + 0.35, w.z, rng() * 6);
     }
     // 远方山影（海平线上的陆地）
     if (rng() < 0.5) {
@@ -475,6 +438,16 @@ function buildSea(ctx) {
     for (const s of [-1, 1]) ctx.prop(GEO.boxBase, QUAY, z1 + 0.6, s * (ROAD_HALF + 2 + 21.5), { y: W - 1.2, sx: 43, sy: -W + 1.22, sz: 1.2, force: true });
   }
 }
-const SAIL = new THREE.ConeGeometry(1, 1, 3).translate(0, 0.5, 0);
+// 灯塔 / 帆船：整组模型做一次模板，摆放时克隆（几何体和材质共享）
+const LIGHTHOUSE = makeLighthouse();
+const CRANE = makeGantryCrane();
+const SHIPS = [makeCargoShip(0x2b3f5c, 1), makeCargoShip(0x7a2a22, 2), makeCargoShip(0x2f4a3a, 3), makeCargoShip(0x3a3a3e, 4)];
+const SAILBOATS = [makeSailboat(), makeSailboat(), makeSailboat(0xd84a1e), makeSailboat(0x2f6fb0)];
+function placeModel(ctx, template, x, y, z, ry) {
+  const m = template.clone(true);
+  m.position.set(x, y, z);
+  m.rotation.y = ry;
+  ctx.extraMeshes.push(m);
+}
 
 export const BUILDERS = { city: buildCity, forest: buildForest, desert: buildDesert, coast: buildCoast, harbor: buildHarbor, neon: buildNeon, sea: buildSea };

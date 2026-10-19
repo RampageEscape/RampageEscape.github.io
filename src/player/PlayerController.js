@@ -13,6 +13,7 @@ const SAMPLE = {};
 const LANES = CONFIG.road.lanes;
 const GRAVITY = 30;
 const SEA = CONFIG.sea;
+const PIVOT = new THREE.Vector3();
 
 /**
  * 玩家控制器
@@ -109,8 +110,14 @@ export class PlayerController {
     this.alive = true;
     this.draft = 0; // 双人对战：落后的一方获得的追赶加速（米/秒）
     this.boostTimer = 0; // 加速带：剩余秒数
+    this.magnet = 0; // 道具“金币磁铁”：剩余秒数
+    this.stunt = null; // 空中特技：{ kind: 'roll' | 'flip', dir, t, dur }
+    this.stuntsInAir = 0;
+    this.stuntRoll = this.stuntFlip = 0;
     // 这一局的成绩（每位玩家各自一份）
     this.score = 0;
+    this.thrill = 0; // 其中来自金币 / 特技 / 挑战的奖励分
+    this.coinsGot = 0;
     this.distance = 0;
     this.kills = 0;
     this.combo = 0;
@@ -177,11 +184,24 @@ export class PlayerController {
 
   handleSwipe(dir) {
     if (!this.alive) return;
+    // 空中：滑动 = 做特技（左右 = 横滚，上下 = 前空翻 / 后空翻），落地前做完才算数
+    if (this.airborne) {
+      if (this.stunt) this.stuntQueue = dir; // 正在转：记下来，转完接着做下一个
+      else this.startStunt(dir);
+      return;
+    }
     // 镜头在车后方：+lat 是屏幕左侧，所以“左滑”是车道编号 +1
     if (dir === 'left') this.lane = Math.min(LANES - 1, this.lane + 1);
     else if (dir === 'right') this.lane = Math.max(0, this.lane - 1);
     else if (dir === 'up') this.speedBias = Math.min(P.maxBias, this.speedBias + P.swipeUpBias);
     else if (dir === 'down') this.speedBias = Math.max(-P.maxBias, this.speedBias + P.swipeDownBias);
+  }
+
+  startStunt(dir) {
+    if (this.y < 0.9 || this.vy < -9) return; // 快落地了，来不及
+    const roll = dir === 'left' || dir === 'right', S = CONFIG.thrills.stunt;
+    this.stunt = { kind: roll ? 'roll' : 'flip', dir: dir === 'left' || dir === 'down' ? 1 : -1, t: 0, dur: roll ? S.rollTime : S.flipTime };
+    this.events.onStuntStart?.(this, this.stunt.kind);
   }
 
   tryDash() {
@@ -290,6 +310,15 @@ export class PlayerController {
       this.dashCooldown = Math.max(0, this.dashCooldown - dt);
     }
     this.invuln = Math.max(0, this.invuln - dt);
+    this.magnet = Math.max(0, this.magnet - dt);
+    if (this.stunt && (this.stunt.t += dt) >= this.stunt.dur) {
+      this.stuntsInAir++;
+      this.events.onStunt?.(this, this.stunt.kind, this.stuntsInAir);
+      this.stunt = null;
+      this.stuntRoll = this.stuntFlip = 0; // 转满一圈 = 回到 0°，接下一个特技不会跳角度
+      if (this.stuntQueue && this.airborne) this.startStunt(this.stuntQueue);
+      this.stuntQueue = null;
+    }
     if (this.rampage > 0 && (this.rampage -= dt) <= 0) {
       this.rampage = 0;
       this.events.onRampageEnd?.(this);
@@ -345,6 +374,17 @@ export class PlayerController {
         const impact = -this.vy;
         this.y = 0;
         this.vy = 0;
+        // 落地时特技还没转完：转了七成以上算你过（自动补完），否则摔车
+        let crashed = false;
+        if (this.stunt) {
+          if (this.stunt.t / this.stunt.dur >= 0.7) { this.stuntsInAir++; this.events.onStunt?.(this, this.stunt.kind, this.stuntsInAir); }
+          else crashed = true;
+          this.stunt = null;
+        }
+        this.stuntQueue = null;
+        if (crashed) this.events.onStuntCrash?.(this);
+        else if (this.stuntsInAir) this.events.onStuntLand?.(this, this.stuntsInAir);
+        this.stuntsInAir = 0;
         this.events.onLand?.(this, impact);
       }
     }
@@ -371,8 +411,27 @@ export class PlayerController {
       pitch = -0.05 - Math.min(0.07, this.speed * 0.0022) - (this.isDashing ? 0.05 : 0) + Math.sin(t * 2.7) * 0.02;
       roll = clamp(-this.latVel * 0.045, -0.22, 0.22) + Math.sin(t * 1.7) * 0.035;
     }
-    this.root.rotation.z = damp(this.root.rotation.z, roll, 10, dt);
-    this.root.rotation.x = damp(this.root.rotation.x, pitch, 8, dt);
+    // 特技角度：缓入缓出地转一整圈；没在做特技时角度收回 0（落地补完的那一下也是平滑的）
+    if (this.stunt) {
+      const k = Math.min(1, this.stunt.t / this.stunt.dur), ease = k * k * (3 - 2 * k), a = this.stunt.dir * ease * Math.PI * 2;
+      if (this.stunt.kind === 'roll') this.stuntRoll = a;
+      else this.stuntFlip = a;
+    } else {
+      this.stuntRoll = Math.abs(this.stuntRoll) > Math.PI ? this.stuntRoll - Math.sign(this.stuntRoll) * Math.PI * 2 : this.stuntRoll;
+      this.stuntFlip = Math.abs(this.stuntFlip) > Math.PI ? this.stuntFlip - Math.sign(this.stuntFlip) * Math.PI * 2 : this.stuntFlip;
+      this.stuntRoll = damp(this.stuntRoll, 0, 14, dt);
+      this.stuntFlip = damp(this.stuntFlip, 0, 14, dt);
+    }
+    this.baseRoll = damp(this.baseRoll ?? 0, roll, 10, dt);
+    this.basePitch = damp(this.basePitch ?? 0, pitch, 8, dt);
+    this.root.rotation.z = this.baseRoll + this.stuntRoll;
+    this.root.rotation.x = this.basePitch + this.stuntFlip;
+    // 特技绕车身中心转，而不是绕车底：把旋转后的中心点移回原位
+    if (this.stuntRoll || this.stuntFlip) {
+      const c = 0.75;
+      PIVOT.set(0, c, 0).applyEuler(this.root.rotation);
+      this.root.position.set(-PIVOT.x, c - PIVOT.y, -PIVOT.z);
+    } else this.root.position.set(0, 0, 0);
     // 冲刺光环、护盾、受伤闪烁
     m.scale.setScalar(this.sizeMul);
     const pulse = Math.sin(performance.now() * 0.03);

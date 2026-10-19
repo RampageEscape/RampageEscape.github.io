@@ -278,6 +278,14 @@ export class AudioEngine {
     [0, 4, 7, 12].forEach((iv, i) => this.tone('triangle', NOTE(root + iv), t + i * 0.055, 0.22, 0.35, out));
   }
 
+  /** 吃金币：清脆的两声“叮”，连击越多音越高 */
+  coin(chain = 0) {
+    if (!this.ctx || !this.sfxOn || !this.gate('coin', 0.035)) return;
+    const t = this.ctx.currentTime, out = this.out(0.28), n = 83 + Math.min(14, chain % 15);
+    this.tone('square', NOTE(n), t, 0.05, 0.16, out);
+    this.tone('triangle', NOTE(n + 7), t + 0.045, 0.14, 0.2, out);
+  }
+
   /** 开进改装站：棘轮 + 气动扳手 */
   garage() {
     if (!this.ctx || !this.sfxOn) return;

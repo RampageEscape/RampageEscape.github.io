@@ -258,6 +258,10 @@ export const LIVERIES = {
   red: [0x8f1a14, 0x141414],
   green: [0x1f4a36, 0x101210],
   taxi: [0xf2c21a, 0x141414],
+  swat: [0x15171b, 0x0b0c0f],
+  armored: [0x4f5a3c, 0x23271c],
+  armoredP2: [0x3c5a8c, 0x1d2c44],
+  gold: [0xd9a520, 0x2a2214],
 };
 export const CIV_LIVERIES = ['white', 'black', 'silver', 'blue', 'red', 'green', 'white', 'silver'];
 const SLOT1 = new THREE.MeshPhysicalMaterial(), SLOT2 = new THREE.MeshPhysicalMaterial(); // 占位，换车漆时替换
