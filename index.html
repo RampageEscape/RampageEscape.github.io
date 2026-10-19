@@ -52,11 +52,16 @@
       <div class="rb-title" data-i18n="roadblock">⚠ 前方路障！</div>
       <div class="rb-lanes"></div>
     </div>
+    <div id="oncoming" class="hidden">
+      <div class="oc-title" data-i18n="oncoming">⚠ 逆行來車！</div>
+      <div class="oc-lanes rb-lanes"></div>
+    </div>
     <div id="junction" class="hidden">
       <div class="jn-title"></div>
       <div class="jn-options"></div>
     </div>
     <button id="pause-btn" aria-label="pause">❚❚</button>
+    <button id="cam-btn" class="cam-btn"></button>
     <div id="combo"></div>
     <button id="fire-btn" class="hidden" data-i18n-aria="fire"><span data-i18n="fire">開炮</span></button>
     <button id="dash-btn" data-i18n-aria="dashAria"><span data-i18n="dash">衝刺</span></button>
@@ -80,6 +85,7 @@
       <div class="vs-shields"></div>
     </div>
     <button id="vs-pause" aria-label="pause">❚❚</button>
+    <button id="vs-cam" class="cam-btn"></button>
     <button id="vs-dash-0" class="vs-dash left"><span data-i18n="dash">衝刺</span></button>
     <button id="vs-dash-1" class="vs-dash right"><span data-i18n="dash">衝刺</span></button>
     <button id="vs-fire-0" class="vs-fire left hidden"><span data-i18n="fire">開炮</span></button>

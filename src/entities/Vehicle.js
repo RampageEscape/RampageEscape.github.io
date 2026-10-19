@@ -23,6 +23,21 @@ export class Vehicle {
     this.bobPhase = rand(0, 6.28);
   }
 
+  /** 换一个陆地模型（例如高精度车模加载完成后替换）；正在开船时只替换备用的车模型 */
+  replaceCarMesh(next) {
+    const cur = this.carMesh ?? this.mesh;
+    this.carMesh = next;
+    if (this.mesh !== cur) return;
+    const parent = cur.parent;
+    next.position.copy(cur.position);
+    next.rotation.copy(cur.rotation);
+    next.visible = cur.visible;
+    parent?.remove(cur);
+    this.mesh = next;
+    this.root = next.userData.root;
+    parent?.add(next);
+  }
+
   /** 海上用的船模型（子类覆盖；返回 null 表示没有船的版本，例如坦克） */
   makeBoat() {
     return null;

@@ -325,6 +325,20 @@ function floatBarrier() {
   return g;
 }
 
+/** 水雷（海上的钉刺带）：黑色圆球 + 一圈触发角，半浮在水面 */
+function seaMine() {
+  const { g, root } = shell(1.2, 3.2, 1);
+  for (const x of [-1, 0, 1]) {
+    part(root, new THREE.SphereGeometry(0.5, 16, 12), paint(0x1d1f22), 0.9, 0.9, 0.9, x, 0.15, 0);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      part(root, CYL, CHROME, 0.06, 0.32, 0.06, x + Math.cos(a) * 0.45, 0.25 + Math.sin(a) * 0.45, 0, 0, 0, a - Math.PI / 2);
+    }
+    part(root, new THREE.SphereGeometry(0.5, 8, 6), flat(0xff3b2a, 0.4), 0.12, 0.12, 0.12, x, 0.68, 0).material.emissive = new THREE.Color(0xff2010);
+  }
+  return g;
+}
+
 // ---------------------------------------------------------------- 对外接口
 // 模板：{ g, meta }。meta 里放对象引用（root / turret），不能放进 userData——clone() 会把 userData 转成 JSON
 const templates = new Map();
@@ -378,6 +392,10 @@ export function makeCivilianBoat(L, W) {
 
 export function makeBuoy() {
   return instance('buoy', buoy);
+}
+
+export function makeSeaMine() {
+  return instance('sea-mine', seaMine);
 }
 
 export function makeFloatBarrier() {

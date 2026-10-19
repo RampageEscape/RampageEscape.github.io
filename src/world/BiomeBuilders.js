@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { ROAD_HALF, WATER_Y } from './Road.js';
 import { GEO, mat } from '../models/Models.js';
+import { envModel } from '../models/ModelLibrary.js';
 import { pick } from '../core/utils.js';
 import { buildNeon, NEON_PAL } from './NeonBuilder.js';
 import { roadMaterial, sidewalks, groundMaterial, waterMaterial } from './RoadMaterial.js';
@@ -25,7 +26,6 @@ export const PAL = {
 };
 const FOLIAGE = [0x6d7d2f, 0x5f7230, 0x7e8a36, 0x4f6a2e];
 const ROCKS = [0x9c9a92, 0x8a8880, 0xb0aea6];
-const MESA = [0xc0643d, 0xb5583a, 0xa94f33, 0xcf7a4b];
 const CONTAINERS = [0xc0392b, 0x2e6da4, 0x2f8a57, 0xe67e22, 0x8e44ad, 0x7f8c8d, 0xd4ac0d, 0x16a085];
 const WHITE = () => mat(0xffffff);
 
@@ -60,6 +60,16 @@ function ruralRoad(ctx, P, shoulder = 1.4) {
     rib.strip(groundMaterial('concrete', P.side), a, b, ROAD_HALF, ROAD_HALF + shoulder, 0.012, ctx.step);
   }
   markings(ctx, P, true);
+}
+
+/**
+ * 岩石 / 山崖：有实拍扫描岩石（Poly Haven）就用它，按米数缩放、用实例颜色染成这张地图的岩石色；
+ * 没加载到时退回低多边形十二面体。base = 底部高度（海上的小岛在水面下）
+ */
+function rock(ctx, z, lat, { w, h, d, ry = 0, color = 0xffffff, base = 0, r = Math.max(w, d) * 0.5, force = false }) {
+  const cliff = envModel('cliff');
+  if (cliff) return ctx.prop(cliff.geo, cliff.mat, z, lat, { y: base - h * 0.06, ry, sx: w, sy: h, sz: d, color, r, align: false, force });
+  return ctx.prop(GEO.rock, WHITE(), z, lat, { y: base + h * 0.35, ry, sx: w * 0.6, sy: h * 0.6, sz: d * 0.6, color, r, align: false, force });
 }
 
 /** 路边两色小桩 */
@@ -193,24 +203,27 @@ function buildForest(ctx) {
     for (let k = 0; k < 4; k++) {
       if (rng() > 0.55) continue;
       const far = k >= 2, z = z0 + rng() * L, sc = far ? 4 + rng() * 5 : 1.5 + rng() * 3;
-      const lat = s * (ROAD_HALF + 3 + sc * 0.6 + rng() * (far ? 30 : 6)), ry = rng() * 6.28, color = pick(ROCKS, rng);
-      const w = ctx.prop(GEO.rock, WHITE(), z, lat, { y: sc * 0.35, ry, sx: sc * 1.3, sy: sc, sz: sc * 1.1, color, r: sc, align: false });
-      if (w) ctx.addAt(w, GEO.rock, mat(0xf4f7f9), { y: sc * 0.75, ry, sx: sc * 1.05, sy: sc * 0.45, sz: sc * 0.9 });
+      const lat = s * (ROAD_HALF + 3 + sc * 0.6 + rng() * (far ? 30 : 6)), ry = rng() * 6.28;
+      rock(ctx, z, lat, { w: sc * 2.2, h: sc * 1.3, d: sc * 1.9, ry, color: pick([0xe9eef2, 0xd9dfe4, 0xf2f4f6], rng), r: sc });
     }
   }
 }
 
 // ---------------------------------------------------------------- 沙漠峡谷
+// 仙人掌：圆润的胶囊形主干和手臂（平滑着色），手臂先水平伸出、再向上弯
+const CACTUS = new THREE.CapsuleGeometry(0.5, 1, 4, 12).translate(0, 1, 0); // 高 2、底部在 y=0
+const CACTUS_JOINT = new THREE.CapsuleGeometry(0.5, 1, 4, 10).rotateZ(Math.PI / 2); // 横躺的连接段
+const CACTUS_MAT = new THREE.MeshStandardMaterial({ color: 0x4f7a34, roughness: 0.85 });
 function cactus(ctx, s, lat, sc, rng) {
-  const g = mat(0x5f8a3a), ry = rng() * 6.28, arms = [rng() < 0.75, rng() < 0.75], ys = [rng(), rng()];
-  const w = ctx.prop(GEO.cylBase, g, s, lat, { ry, sx: 0.7 * sc, sy: 4.2 * sc, sz: 0.7 * sc, r: 1.2 * sc, align: false });
+  const g = CACTUS_MAT, ry = rng() * 6.28, arms = [rng() < 0.75, rng() < 0.75], ys = [rng(), rng()];
+  const w = ctx.prop(CACTUS, g, s, lat, { ry, sx: 0.7 * sc, sy: 2.1 * sc, sz: 0.7 * sc, r: 1.2 * sc, align: false });
   if (!w) return;
   [1, -1].forEach((dir, k) => {
     if (!arms[k]) return;
     // 绕 Y 旋转 ry 后，局部 X 轴的世界方向是 (cos ry, 0, -sin ry)
     const ax = Math.cos(ry) * dir, az = -Math.sin(ry) * dir, y = (1.6 + ys[k] * 1.2) * sc;
-    ctx.addAt({ x: w.x + ax * 0.55 * sc, z: w.z + az * 0.55 * sc }, GEO.boxBase, g, { y, ry, sx: 0.9 * sc, sy: 0.45 * sc, sz: 0.45 * sc });
-    ctx.addAt({ x: w.x + ax * 0.95 * sc, z: w.z + az * 0.95 * sc }, GEO.cylBase, g, { y, ry, sx: 0.45 * sc, sy: 1.5 * sc, sz: 0.45 * sc });
+    ctx.addAt({ x: w.x + ax * 0.6 * sc, z: w.z + az * 0.6 * sc }, CACTUS_JOINT, g, { y, ry, sx: 0.5 * sc, sy: 0.42 * sc, sz: 0.42 * sc });
+    ctx.addAt({ x: w.x + ax * 0.95 * sc, z: w.z + az * 0.95 * sc }, CACTUS, g, { y: y - 0.2 * sc, ry, sx: 0.42 * sc, sy: 0.8 * sc, sz: 0.42 * sc });
   });
 }
 
@@ -220,20 +233,17 @@ function buildDesert(ctx) {
   ruralRoad(ctx, P);
   posts(ctx, 14, ROAD_HALF + 1.0, 0xe67e22);
   for (const s of [-1, 1]) {
-    // 远处的平顶岩山：两层岩块 + 浅色顶面；镜头一侧压低
-    if (rng() < 0.65) {
-      const z = z0 + rng() * L, lat = s * (ROAD_HALF + 22 + rng() * 30), w = 10 + rng() * 14, d = 10 + rng() * 14;
-      const h = s < 0 && !CONFIG.world.tallNear ? 4 + rng() * 3 : 10 + rng() * 14, ry = rng() * 6.28, c1 = pick(MESA, rng), c2 = pick(MESA, rng);
-      const at = ctx.prop(GEO.boxBase, WHITE(), z, lat, { ry, sx: w, sy: h * 0.6, sz: d, color: c1, r: Math.max(w, d) * 0.6, align: false });
-      if (at) {
-        ctx.addAt(at, GEO.boxBase, WHITE(), { y: h * 0.6, ry, sx: w * 0.8, sy: h * 0.4, sz: d * 0.8, color: c2 });
-        ctx.addAt(at, GEO.boxBase, mat(0xe0a27a), { y: h, ry, sx: w * 0.82, sy: 0.4, sz: d * 0.82 });
-      }
+    // 远处的岩山 / 峭壁（实拍扫描岩石染成红砂岩色）；俯视角时镜头一侧压低
+    if (rng() < 0.75) {
+      const z = z0 + rng() * L, lat = s * (ROAD_HALF + 20 + rng() * 32), w = 14 + rng() * 18, d = 12 + rng() * 16;
+      const h = s < 0 && !CONFIG.world.tallNear ? 4 + rng() * 3 : 9 + rng() * 16;
+      rock(ctx, z, lat, { w, h, d, ry: rng() * 6.28, color: pick([0xffc79a, 0xf2b285, 0xe8a77a, 0xffd2aa], rng), r: Math.max(w, d) * 0.6 });
     }
     for (let k = 0; k < 6; k++) cactus(ctx, z0 + rng() * L, s * (ROAD_HALF + 3 + Math.pow(rng(), 1.3) * 30), 0.8 + rng() * 0.7, rng);
-    for (let k = 0; k < 10; k++) {
-      const z = z0 + rng() * L, lat = s * (ROAD_HALF + 2 + rng() * 40), sc = 0.4 + rng() * 0.8;
-      ctx.prop(GEO.rock, WHITE(), z, lat, { y: sc * 0.3, ry: rng() * 6.28, sx: sc * 1.3, sy: sc * 0.6, sz: sc, color: pick([0xa08850, 0x8f7a45, 0xb7a06a, 0x9c6a4a], rng), r: sc, align: false });
+    // 路边的碎石和大石头
+    for (let k = 0; k < 7; k++) {
+      const z = z0 + rng() * L, lat = s * (ROAD_HALF + 2.5 + rng() * 40), sc = 0.5 + rng() * rng() * 3;
+      rock(ctx, z, lat, { w: sc * 1.6, h: sc * 0.9, d: sc * 1.4, ry: rng() * 6.28, color: pick([0xf5c9a0, 0xe7b48c, 0xd9a27a], rng), r: sc });
     }
   }
 }
@@ -273,7 +283,7 @@ function buildCoast(ctx) {
   for (let k = 0; k < 2; k++) {
     if (rng() < 0.5) continue;
     const z = z0 + rng() * L, sc = 2 + rng() * 4;
-    ctx.prop(GEO.rock, WHITE(), z, -ROAD_HALF - beach - 6 - rng() * 40, { y: sc * 0.2, ry: rng() * 6.28, sx: sc * 1.3, sy: sc * 0.7, sz: sc, color: pick(ROCKS, rng), r: sc, align: false });
+    rock(ctx, z, -ROAD_HALF - beach - 6 - rng() * 40, { w: sc * 2, h: sc * 1.1, d: sc * 1.7, ry: rng() * 6.28, color: pick([0xd8d2c8, 0xc9c2b6, 0xe2ddd4], rng), r: sc });
   }
   for (let k = 0; k < 14; k++) palm(ctx, z0 + rng() * L, ROAD_HALF + 3 + Math.pow(rng(), 1.2) * 38, 0.8 + rng() * 0.6, rng);
   for (let k = 0; k < 10; k++) {
@@ -411,11 +421,11 @@ function buildSea(ctx) {
     // 礁石小岛（有的上面有灯塔）
     if (rng() < 0.55) {
       const z = z0 + rng() * 40, lat = s * (ROAD_HALF + 18 + rng() * 45), sx = 8 + rng() * 16, sy = 3 + rng() * 6, sz = 8 + rng() * 14;
-      const w = ctx.prop(GEO.rock, WHITE(), z, lat, { y: W - 1, ry: rng() * 6, sx, sy, sz, color: pick(ROCKS, rng), r: Math.max(sx, sz), align: false });
+      const w = rock(ctx, z, lat, { w: sx * 1.5, h: sy * 1.25, d: sz * 1.5, base: W - 1, ry: rng() * 6, color: pick([0xc8c0b6, 0xb8b0a6, 0xd6cfc4], rng), r: Math.max(sx, sz) });
       if (w) {
-        ctx.addAt(w, GEO.rock, mat(0x4f7a3a), { y: W - 1 + sy * 0.55, ry: rng() * 6, sx: sx * 0.75, sy: sy * 0.4, sz: sz * 0.75 });
+        ctx.addAt(w, GEO.rock, mat(0x4f7a3a), { y: W - 1 + sy * 1.05, ry: rng() * 6, sx: sx * 0.6, sy: sy * 0.25, sz: sz * 0.6 });
         if (rng() < 0.35) {
-          const top = W - 1 + sy * 0.9;
+          const top = W - 1 + sy * 1.1;
           for (let k = 0; k < 4; k++) ctx.addAt(w, GEO.cylBase, mat(k % 2 ? 0xd62a1e : 0xf4f4f0), { y: top + k * 1.6, sx: 1.6 - k * 0.12, sy: 1.6, sz: 1.6 - k * 0.12 });
           ctx.addAt(w, GEO.boxBase, mat(0xfff3c4, { emissive: 0xffe08a }), { y: top + 6.4, sx: 1, sy: 1, sz: 1 });
           ctx.addAt(w, GEO.coneBase, mat(0x2a2c30), { y: top + 7.4, sx: 0.9, sy: 0.9, sz: 0.9 });
@@ -450,7 +460,7 @@ function buildSea(ctx) {
     // 远方山影（海平线上的陆地）
     if (rng() < 0.5) {
       const z = z0 + rng() * 40, sx = 50 + rng() * 60, sy = 14 + rng() * 22;
-      ctx.prop(GEO.rock, WHITE(), z, s * (150 + rng() * 80), { y: W - 2, ry: rng() * 6, sx, sy, sz: 40 + rng() * 40, color: pick([0x5d7a52, 0x6b7f6a, 0x7c8a78], rng), r: 60, align: false, force: true });
+      rock(ctx, z, s * (150 + rng() * 80), { w: sx * 1.4, h: sy * 1.3, d: 50 + rng() * 40, base: W - 2, ry: rng() * 6, color: pick([0x9fb398, 0xa9b5a5, 0xb3bdb0], rng), r: 60, force: true });
     }
   }
 

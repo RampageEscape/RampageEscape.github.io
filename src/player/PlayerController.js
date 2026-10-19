@@ -364,7 +364,7 @@ export class PlayerController {
       const glow = this.isDashing ? 2.6 + 0.6 * pulse : 0.55, c = this.color.glow;
       this.aura.material.color.setRGB(c[0] * glow, c[1] * glow, c[2] * glow);
     }
-    this.bubble.visible = this.shields > 0;
+    this.bubble.visible = this.shields > 0 && !this.firstPerson; // 第一人称时护盾罩在镜头外面会挡视线
     if (this.shields > 0) {
       this.bubble.rotation.y += dt * 1.5;
       this.bubble.material.opacity = 0.18 + 0.06 * this.shields;

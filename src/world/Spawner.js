@@ -6,6 +6,7 @@ import { Civilian, Obstacle } from '../ai/Traffic.js';
 import { TankAI, Shells } from '../ai/TankAI.js';
 import { RoadWarnings } from '../fx/RoadWarnings.js';
 import { Helicopter } from '../ai/Helicopter.js';
+import { makePoliceCar, makeCivilian } from '../models/Models.js';
 import { RUN } from '../data/difficulty.js';
 import { rand, randInt } from '../core/utils.js';
 
@@ -28,6 +29,7 @@ export class Spawner {
       civilian: pool(() => new Civilian(), 12),
       barrier: pool(() => new Obstacle('barrier'), 6),
       cone: pool(() => new Obstacle('cone'), 8),
+      spikes: pool(() => new Obstacle('spikes'), 4),
       tank: pool(() => new TankAI(), 1),
     };
     this.police = [];
@@ -44,6 +46,14 @@ export class Spawner {
 
   get lists() { return [this.police, this.traffic, this.obstacles, this.tanks]; }
 
+  /** 高精度车模加载完成：把对象池里（包括正在路上跑的）警车、私家车换成真车模型 */
+  upgradeModels() {
+    for (const c of [...this.pools.police.free, ...this.police.filter((c) => c.type === 'police')]) c.replaceCarMesh(makePoliceCar());
+    for (const c of [...this.pools.civilian.free, ...this.traffic]) {
+      if (['sedan', 'taxi', 'suv', 'hatchback-sports'].includes(c.kind?.[0])) c.replaceCarMesh(makeCivilian(undefined, c.kind));
+    }
+  }
+
   reset() {
     for (const list of this.lists) {
       for (const e of list) this.recycle(e);
@@ -57,6 +67,7 @@ export class Spawner {
     this.nextBarricadeZ = 320;
     this.nextTankZ = 0;
     this.policeTimer = 2.5;
+    this.oncomingTimer = 6;
     this.roleIdx = 0;
     this.spawnLimit = Infinity;
     this.rebuild();
@@ -91,12 +102,18 @@ export class Spawner {
   }
 
   spawnLogic(dt, p, stars) {
-    const D = RUN.diff;
-    const want = Math.min(D.policeMax, Math.round((S.policeBase + stars * S.policePerStar) * D.policeMul));
+    const D = RUN.diff, Hc = CONFIG.heat, heat = RUN.heat - 1; // heat：速度等级越高越难
+    const heatMul = 1 + Hc.police * heat;
+    const want = Math.min(D.policeMax + Math.floor(heat / 2), Math.round((S.policeBase + stars * S.policePerStar) * D.policeMul * heatMul));
     const chasing = this.police.filter((c) => c.mode === 'chase' && c.collidable).length;
     if ((this.policeTimer -= dt) <= 0 && chasing < want) {
       this.spawnChaser(p, stars);
-      this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2) / D.policeMul;
+      this.policeTimer = rand(1.2, 2.5) / (1 + stars * 0.2) / D.policeMul / heatMul;
+    }
+    // 逆行来车：从速度 LV2 开始，越往后越频繁
+    if (RUN.heat >= Hc.oncomingFrom && (this.oncomingTimer -= dt) <= 0) {
+      this.oncomingTimer = rand(...Hc.oncomingGap) / (1 + 0.12 * heat);
+      this.spawnOncoming(p.z + rand(230, 300));
     }
     // 路口还没选定时，路口后面的路线还不存在：所有前方刷新都限制在路口之前
     const j = this.game.levels.junction;
@@ -136,6 +153,18 @@ export class Spawner {
     this.rebuild();
   }
 
+  /** 逆行来车：在前方某条车道生成，迎面开过来（路障区、路口区、码头边缘不刷） */
+  spawnOncoming(z) {
+    if (this.inBarricadeZone(z) || z > (this.spawnLimit ?? Infinity) || Road.path.nearJunction(z - 60, z + 20, 0, 0)) return;
+    if (Road.isWater(z - 120) !== Road.isWater(z)) return;
+    const lane = randInt(0, LANES - 1);
+    if (!this.laneFree(z, laneOffset(lane), 30)) return;
+    const c = this.pools.civilian.get();
+    c.spawnOncoming(this.scene, z, lane, rand(...CONFIG.heat.oncomingSpeed) * RUN.pace);
+    this.traffic.push(c);
+    this.rebuild();
+  }
+
   laneFree(z, lat, range) {
     return !this.entities.some((e) => e.collidable && Math.abs(e.z - z) < range && Math.abs(e.lateral - lat) < 2.5);
   }
@@ -172,8 +201,14 @@ export class Spawner {
     }
     const blocked = lanes.slice(0, count).sort((a, b) => a - b);
 
+    // 速度 LV3 以后，有一部分路障换成钉刺带（压到会爆胎，追你的警车压到会翻车）
+    const spikes = RUN.heat >= CONFIG.heat.spikesFrom && Math.random() < CONFIG.heat.spikesChance;
     for (const i of blocked) {
       const lat = laneOffset(i);
+      if (spikes) {
+        this.addStatic('spikes', z, lat);
+        continue;
+      }
       if (Math.random() < 0.65) {
         const type = stars >= 2 && Math.random() < 0.3 ? 'swat' : 'police';
         const cop = this.pools[type].get();
@@ -194,7 +229,7 @@ export class Spawner {
     this.game.features?.onBarricade(z, blocked);
     const signs = [];
     for (const i of blocked) for (const d of B.signOffsets) signs.push(this.warnings.place(z - d, laneOffset(i)));
-    this.barricades.push({ z, blocked, signs });
+    this.barricades.push({ z, blocked, signs, spikes });
     this.rebuild();
   }
 

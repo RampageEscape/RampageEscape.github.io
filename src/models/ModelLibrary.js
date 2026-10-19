@@ -38,6 +38,32 @@ export async function loadModels(onProgress) {
 
 export const hasModel = (name) => cache.has(name);
 
+// ---------------------------------------------------------------- 环境模型（Poly Haven 实拍扫描岩石，CC0）
+// 几何体归一化成 1×1×1（底部在 y=0、中心在原点），摆放时直接用米数缩放；颜色用实例颜色染成各地图的岩石色
+const ENV = {};
+export const envModel = (name) => ENV[name] ?? null;
+export async function loadEnvModels() {
+  const loader = new GLTFLoader();
+  for (const name of ['cliff']) {
+    try {
+      const gltf = await loader.loadAsync(`assets/models/env/${name}.glb`);
+      let mesh = null;
+      gltf.scene.traverse((o) => { if (o.isMesh && !mesh) mesh = o; });
+      gltf.scene.updateMatrixWorld(true);
+      const geo = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+      geo.computeBoundingBox();
+      const b = geo.boundingBox, size = b.getSize(new THREE.Vector3());
+      geo.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
+      geo.scale(1 / size.x, 1 / size.y, 1 / size.z);
+      const mat = mesh.material;
+      mat.envMapIntensity = 0.5;
+      ENV[name] = { geo, mat };
+    } catch (e) {
+      console.warn(`[env] ${name} 加载失败，使用低多边形岩石`, e);
+    }
+  }
+}
+
 function tinted(model, tint) {
   model.traverse((o) => {
     if (!o.isMesh) return;
@@ -208,4 +234,92 @@ export async function loadHero(renderer) {
     if (idx >= 0) await applyVariant(copy, gltf.parser, idx);
     cache.set(key, prepareHero(copy));
   }
+  // 警车 / 民用车：同一台概念车的低模版本（约 1.5 万个三角形，内饰已删掉），换上不同车漆
+  const lod = await loader.loadAsync('assets/hero/CarConcept_lod.gltf');
+  const base = prepareLod(lod.scene);
+  for (const [key, [c1, c2]] of Object.entries(LIVERIES)) {
+    const g = base.clone(true);
+    g.traverse((o) => {
+      if (o.material === SLOT1) o.material = carPaint(c1);
+      else if (o.material === SLOT2) o.material = carPaint(c2);
+    });
+    cache.set('lod-' + key, g);
+  }
 }
+
+// ---------------------------------------------------------------- 低模真车（警车 / 民用车）
+// 车漆：[主色, 下半部 / 侧裙颜色]
+export const LIVERIES = {
+  police: [0xf4f5f7, 0x0b0c0f],
+  white: [0xe9e9e6, 0x1c1e22],
+  black: [0x0f1012, 0x0f1012],
+  silver: [0xa7abb1, 0x26282c],
+  blue: [0x1d3f7a, 0x101216],
+  red: [0x8f1a14, 0x141414],
+  green: [0x1f4a36, 0x101210],
+  taxi: [0xf2c21a, 0x141414],
+};
+export const CIV_LIVERIES = ['white', 'black', 'silver', 'blue', 'red', 'green', 'white', 'silver'];
+const SLOT1 = new THREE.MeshPhysicalMaterial(), SLOT2 = new THREE.MeshPhysicalMaterial(); // 占位，换车漆时替换
+const paints = new Map();
+function carPaint(color) {
+  if (!paints.has(color)) paints.set(color, new THREE.MeshPhysicalMaterial({ color, metalness: 0.45, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06 }));
+  return paints.get(color);
+}
+const LOD_MATS = {
+  trim: new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.55, metalness: 0.25 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x131313, roughness: 0.92 }),
+  rim: new THREE.MeshStandardMaterial({ color: 0xc6cbd1, roughness: 0.25, metalness: 1 }),
+  head: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 1.6 }),
+  tail: new THREE.MeshStandardMaterial({ color: 0x4a0000, emissive: 0xff1608, emissiveIntensity: 1.3 }),
+  signal: new THREE.MeshStandardMaterial({ color: 0x5a3000, emissive: 0xff8a10, emissiveIntensity: 0.8 }),
+};
+function lodMaterial(name = '') {
+  if (/^Paint 1/.test(name)) return SLOT1;
+  if (/^Paint 2/.test(name)) return SLOT2;
+  if (name === 'Glass') return HERO_GLASS;
+  if (/Rim/.test(name)) return LOD_MATS.rim;
+  if (/Tire/.test(name)) return LOD_MATS.rubber;
+  if (name === 'Headlight') return LOD_MATS.head;
+  if (name === 'Brakelight') return LOD_MATS.tail;
+  if (name === 'Signallight') return LOD_MATS.signal;
+  return LOD_MATS.trim;
+}
+
+/** 低模车：朝向转成车头朝 +Z，所有零件（含车轮）按材质合并成 7~8 个网格，只有车漆投影 */
+function prepareLod(scene) {
+  scene.updateMatrixWorld(true);
+  const centerOf = (name) => {
+    const n = scene.getObjectByName(name);
+    return n ? new THREE.Box3().setFromObject(n).getCenter(new THREE.Vector3()) : null;
+  };
+  const size = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3());
+  const along = size.x > size.z ? 'x' : 'z';
+  const head = centerOf('BodyHeadlights'), tail = centerOf('BodyTaillights');
+  const wrap = new THREE.Group();
+  wrap.add(scene);
+  if (along === 'x') scene.rotation.y = head && tail && head.x < tail.x ? Math.PI / 2 : -Math.PI / 2;
+  else if (head && tail && head.z < tail.z) scene.rotation.y = Math.PI;
+  wrap.updateMatrixWorld(true);
+  const groups = new Map();
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const material = lodMaterial(o.material?.name);
+    const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k);
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+    const g2 = geo.index ? geo.toNonIndexed() : geo;
+    if (!groups.has(material)) groups.set(material, []);
+    groups.get(material).push(g2);
+  });
+  wrap.remove(scene);
+  for (const [material, list] of groups) {
+    const mesh = new THREE.Mesh(mergeGeometries(list), material);
+    mesh.castShadow = material === SLOT1 || material === SLOT2;
+    mesh.receiveShadow = true;
+    wrap.add(mesh);
+  }
+  return wrap;
+}
+
+export const hasLodCars = () => cache.has('lod-police');

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { pick } from '../core/utils.js';
-import { kitVehicle } from './ModelLibrary.js';
+import { kitVehicle, hasLodCars, CIV_LIVERIES } from './ModelLibrary.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // 程序化生成的低多边形模型。以后换成美术做的 glTF 模型时，只需要替换这个文件。
 
@@ -146,6 +147,9 @@ export function makePlayerTank(skin) {
 }
 
 export function makePoliceCar() {
+  // 有低模真车就用它（黑白警察涂装 + 警灯），否则用 Kenney 卡通警车
+  const real = kitVehicle('lod-police', { length: 4.5 });
+  if (real) { addLightbar(real, 0.3); return real; }
   const k = kitVehicle('police', { length: 4.4 });
   if (k) { addLightbar(k); return k; }
   const g = vehicle({ L: 4.4, W: 2.0, H: 1.7, body: 0xeef1f5 });
@@ -166,11 +170,19 @@ export function makeSwat() {
 }
 
 const CIV_COLORS = [0x8c2f2a, 0x4b5f8a, 0x6c7a5a, 0xcfcfcf, 0x2f3a46, 0x9b6b3d, 0x5a6e74];
-const KIT_CIVILIANS = [['sedan', 4.4], ['sedan', 4.4], ['taxi', 4.4], ['suv', 4.6], ['hatchback-sports', 4.3], ['truck', 5.2], ['delivery', 5.6], ['ambulance', 5.6], ['firetruck', 6.4], ['garbage-truck', 6.0]];
-export function makeCivilian(kind = pick(['sedan', 'sedan', 'taxi', 'suv', 'pickup'])) {
-  const [name, length] = pick(KIT_CIVILIANS);
+// 小车（会用低模真车）占大多数，大车（Kenney 模型）偶尔出现
+const KIT_CIVILIANS = [['sedan', 4.4], ['sedan', 4.4], ['sedan', 4.4], ['sedan', 4.4], ['taxi', 4.4], ['taxi', 4.4], ['suv', 4.6], ['suv', 4.6], ['hatchback-sports', 4.3], ['hatchback-sports', 4.3], ['truck', 5.2], ['delivery', 5.6], ['ambulance', 5.6], ['firetruck', 6.4], ['garbage-truck', 6.0]];
+// 私家车 / 的士 / SUV 用低模真车（各种车漆），货车、救护车、消防车这些大车还是 Kenney 模型
+const REAL_KINDS = new Set(['sedan', 'taxi', 'suv', 'hatchback-sports']);
+export function makeCivilian(kind = pick(['sedan', 'sedan', 'taxi', 'suv', 'pickup']), forced = null) {
+  const [name, length] = forced ?? pick(KIT_CIVILIANS);
+  if (REAL_KINDS.has(name) && hasLodCars()) {
+    const real = kitVehicle('lod-' + (name === 'taxi' ? 'taxi' : pick(CIV_LIVERIES)), { length: Math.max(4.4, length) });
+    real.userData.kind = [name, length];
+    return real;
+  }
   const k = kitVehicle(name, { length });
-  if (k) return k;
+  if (k) { k.userData.kind = [name, length]; return k; }
   const color = pick(CIV_COLORS);
   if (kind === 'taxi') {
     const g = vehicle({ L: 4.4, W: 2.0, H: 1.65, body: 0xf2c12e });
@@ -196,6 +208,25 @@ export function makeBarrier() {
   part(root, mat(0x9a9a9a), 0.08, 1.9, 0.08, 0, 0.95, -0.08);
   part(root, mat(0xc81e1e), 1, 1, 1, 0, 1.75, -0.1, GEO.octagon);
   part(root, mat(0xffd34d, { emissive: 0xffb000 }), 0.18, 0.18, 0.18, 1.3, 1.2, 0);
+  g.userData.root = root;
+  return g;
+}
+
+/** 钉刺带：一条贴地的折叠钢架 + 一排排银色钢钉，两端黄黑警示块（合并成两个网格） */
+const SPIKE_GEO = (() => {
+  const base = new THREE.BoxGeometry(3.3, 0.06, 0.55).translate(0, 0.03, 0);
+  const spikes = [];
+  for (let i = 0; i < 22; i++) for (const z of [-0.16, 0.16]) spikes.push(new THREE.ConeGeometry(0.045, 0.16, 5).translate(-1.55 + i * 0.148, 0.14, z + (i % 2) * 0.05));
+  return { base, spikes: mergeGeometries(spikes) };
+})();
+export function makeSpikeStrip() {
+  const g = new THREE.Group();
+  const root = new THREE.Group();
+  g.add(root);
+  root.add(new THREE.Mesh(SPIKE_GEO.base, mat(0x2a2b2e)));
+  const sp = new THREE.Mesh(SPIKE_GEO.spikes, new THREE.MeshStandardMaterial({ color: 0xd9dde2, metalness: 1, roughness: 0.25 }));
+  root.add(sp);
+  for (const sx of [-1.75, 1.75]) part(root, mat(0xf2c21a), 0.2, 0.12, 0.6, sx, 0.06, 0);
   g.userData.root = root;
   return g;
 }

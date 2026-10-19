@@ -25,7 +25,8 @@
 双人对战：玩家 1 用屏幕**左半边**（键盘 WASD + 空格冲刺 + F 开炮），玩家 2 用**右半边**（方向键 + Enter 冲刺 + L 开炮）。手机建议横过来玩。用冲刺撞对手会让他掉血；落后的一方会获得追赶加速。
 
 - **三种模式**：闯关模式（5 关，按表现拿 1～3 星，过关解锁下一关）、无尽模式、**双人对战**（同一台设备左右分屏，看谁先被撞毁或被捕）
-- **速度分级**：开局速度只有正常的约 6 成，分数每突破一个门槛升一级（最多 LV 10），整体速度慢慢加快，警车和车流也一起变快
+- **速度分级 + 难度递增**：开局速度约为正常的 2/3，分数每突破一个门槛升一级（最多 LV 10）。等级越高：车速越快、警车越多越凶、被捕越快；LV2 起出现**逆行来车**（迎面撞上伤害很大，擦过去双倍分），LV3 起部分路障换成**钉刺带**（压到爆胎，海上是水雷）
+- **三种视角，游戏中一键切换**（画面上方的视角按钮或按 C）：GTA 式第三人称、第一人称（驾驶座视角）、俯视
 - **海上追逐**：路口里选“海上追逐”会通往码头，冲下跳台变成快艇（每个进化等级都有对应的船，坦克变炮艇），在海上照样被水警船追；到对岸冲上滑道再变回汽车
 - **7 张地图**：郊区城市、雪地森林、沙漠峡谷、海滨公路、工业港口、霓虹夜城、海上追逐。遇到十字路口 / T 字路口 / Y 型分叉时，开到哪条车道就走哪条岔路，每条岔路通往不同地图
 - **改装站**：每过一个路口就会经过一个改装站，三选一升级：装甲、维修、护盾、氮气、引擎，或者**车辆进化**：跑车 → 肌肉车 → 装甲车（不冲刺也能撞爆警车）→ **坦克**（可以开炮）
@@ -82,9 +83,10 @@ docs/ARCHITECTURE.md      架构设计与打击感设计说明
 
 | 素材 | 作者 / 来源 | 授权 |
 |---|---|---|
-| 主角跑车（Car Concept，`assets/hero/`） | Eric Chadwick（Darmstadt Graphics Group GmbH），[Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept)；游戏里删掉了看不见的零件、合并了网格、玻璃改为普通半透明材质 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| 主角跑车、警车、私家车（Car Concept，`assets/hero/`） | Eric Chadwick（Darmstadt Graphics Group GmbH），[Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept)；游戏里删掉了看不见的零件、合并了网格、玻璃改为普通半透明材质；警车 / 私家车用的是减面后的版本（`CarConcept_lod.gltf`）并重新上了车漆 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | 警车、民用车、碎片模型（`assets/models/`） | [Kenney Car Kit](https://kenney.nl/assets/car-kit) | CC0 |
 | 天空 HDRI、沥青 / 雪地 / 沙地 / 草地 / 海滩 / 水泥地贴图（`assets/env/`、`assets/textures/`） | [Poly Haven](https://polyhaven.com/) | CC0 |
+| 岩石 / 峭壁（`assets/models/env/cliff.glb`，由 Namaqualand Cliff 01 减面） | [Poly Haven](https://polyhaven.com/a/namaqualand_cliff_01) | CC0 |
 | 建筑立面、地砖、海浪、粒子贴图 | 游戏代码程序化生成 | 随本项目 |
 | 音效与背景音乐 | Web Audio 实时合成（`src/audio/AudioEngine.js`） | 随本项目 |
 

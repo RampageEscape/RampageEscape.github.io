@@ -317,3 +317,24 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .vs-res { padding: 12px 18px; border-radius: 14px; background: rgba(255,255,255,.08); min-width: 170px; font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; line-height: 1.6; }
 .vs-res.win { background: rgba(255,210,58,.18); border: 2px solid #ffd23a; }
 .vs-res b { font-size: 20px; }
+
+/* 视角快速切换（游戏中，暂停键右边） */
+.cam-btn {
+  position: absolute; top: calc(env(safe-area-inset-top) + 12px); left: calc(50% + 28px);
+  height: 36px; padding: 0 12px; border-radius: 18px; border: 2px solid rgba(255,255,255,.7); background: rgba(0,0,0,.45);
+  color: #fff; font: 700 13px/1 system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; white-space: nowrap;
+  pointer-events: auto; cursor: pointer; z-index: 2; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.cam-btn:active { transform: scale(.95); }
+#vs-cam { top: calc(env(safe-area-inset-top) + 56px); left: 50%; transform: translateX(-50%); }
+#vs-cam:active { transform: translateX(-50%) scale(.95); }
+
+/* 逆行来车预警（路障预警下面） */
+#oncoming {
+  position: absolute; top: calc(env(safe-area-inset-top) + 150px); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 12px;
+  background: rgba(120, 10, 10, .55); border: 2px solid #ff4a3a; animation: oc-blink .5s infinite alternate;
+}
+.oc-title { font-size: 15px; color: #fff; text-shadow: 0 2px 0 #000; }
+#oncoming .lane.closed { color: #fff; background: #ff3b2a; }
+@keyframes oc-blink { to { border-color: #ffd23a; } }

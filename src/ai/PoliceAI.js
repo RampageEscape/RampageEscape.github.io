@@ -121,8 +121,10 @@ export class PoliceAI extends Vehicle {
     const wantLatVel = clamp((desiredLat - this.lateral) * S.steerGain, -S.maxLatSpeed, S.maxLatSpeed);
     this.latVel = damp(this.latVel, wantLatVel, 4, dt);
     if (this.role !== 2 && this.ramTimer <= 0 && Math.abs(rel) < 2.6 && Math.abs(player.lateral - this.lateral) < 4.6) {
-      this.latVel = Math.sign(player.lateral - this.lateral) * S.ramImpulse;
-      this.ramTimer = S.ramCooldown * rand(0.8, 1.4);
+      // 速度等级越高，警车撞得越频繁、越猛
+      const heat = 1 + CONFIG.heat.ram * (RUN.heat - 1);
+      this.latVel = Math.sign(player.lateral - this.lateral) * S.ramImpulse * Math.sqrt(heat);
+      this.ramTimer = (S.ramCooldown * rand(0.8, 1.4)) / heat;
     }
     this.lateral = clamp(this.lateral + this.latVel * dt, -lim, lim);
 

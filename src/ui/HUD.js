@@ -64,6 +64,7 @@ export class HUD {
     on('vs-again', () => this.onVersusAgain?.());
     on('vs-menu', () => this.onMenu?.());
     press($('vs-pause'), () => this.onPause?.());
+    for (const id of ['cam-btn', 'vs-cam']) press($(id), () => this.onCycleCamera?.());
     this.el.vsDash.forEach((b, i) => press(b, () => this.onVsDash?.(i)));
     this.el.vsFire.forEach((b, i) => press(b, () => this.onVsFire?.(i)));
     this.el.lang.addEventListener('click', () => toggleLang());
@@ -84,6 +85,7 @@ export class HUD {
       if (this.screen === 'garage') this.renderGarage();
       if (this.screen === 'title') this.showTitle();
       if (this.screen === 'pause') this.renderPause();
+      this.setCamLabel(this.settings?.().camera);
       if (this.screen === 'versusOver') this.renderVersusOver();
       if (this.missionList) this.showMissions(this.missionList);
       this.lastDistance = -1;
@@ -133,10 +135,11 @@ export class HUD {
 
   renderPause() {
     const s = this.settings?.() ?? {};
-    $('pause-camera').classList.toggle('hidden', this.versus); // 双人对战固定用追尾分屏
+
     $('pause-music').textContent = t(s.music === false ? 'musicOff' : 'musicOn');
     $('pause-sfx').textContent = t(s.sfx === false ? 'sfxOff' : 'sfxOn');
-    $('pause-camera').textContent = t(s.camera === 'chase' ? 'camChase' : 'camIso');
+    $('pause-camera').textContent = t({ chase: 'camChase', first: 'camFirst', iso: 'camIso' }[s.camera] ?? 'camChase');
+    this.setCamLabel(s.camera);
   }
 
   // ---------------- 车库 ----------------
@@ -214,6 +217,7 @@ export class HUD {
     this.lastLv = -1;
     this.overData = null;
     this.showRoadblock(null);
+    this.showOncoming(null);
     this.el.junction.classList.add('hidden');
     this.jnKey = null;
   }
@@ -325,17 +329,30 @@ export class HUD {
    * 路障预警：blocked = 被堵的车道编号数组，null = 隐藏。
    * 车道编号越大越靠屏幕左边（镜头在车后方，+X 是驾驶员左侧），所以从大到小画。
    */
-  showRoadblock(blocked) {
-    const key = blocked ? blocked.join(',') : '';
+  showRoadblock(blocked, spikes = false) {
+    const key = blocked ? blocked.join(',') + spikes : '';
     if (key === this.rbKey) return;
     this.rbKey = key;
     this.el.roadblock.classList.toggle('hidden', !blocked);
     if (!blocked) return;
+    this.el.roadblock.querySelector('.rb-title').textContent = t(spikes ? 'spikeWarn' : 'roadblock');
     let html = '';
     for (let i = CONFIG.road.lanes - 1; i >= 0; i--) {
       html += blocked.includes(i) ? '<span class="lane closed">✕</span>' : '<span class="lane open">▲</span>';
     }
     this.el.rbLanes.innerHTML = html;
+  }
+
+  /** 逆行来车预警：lanes = 有迎面来车的车道编号（可重复），null = 隐藏 */
+  showOncoming(lanes) {
+    const el = $('oncoming'), key = lanes ? [...new Set(lanes)].sort().join(',') : '';
+    if (key === this.ocKey) return;
+    this.ocKey = key;
+    el.classList.toggle('hidden', !lanes);
+    if (!lanes) return;
+    let html = '';
+    for (let i = CONFIG.road.lanes - 1; i >= 0; i--) html += lanes.includes(i) ? '<span class="lane closed">▼</span>' : '<span class="lane">·</span>';
+    el.querySelector('.oc-lanes').innerHTML = html;
   }
 
   /**
@@ -366,6 +383,11 @@ export class HUD {
       });
       this.el.jnOptions.appendChild(b);
     }
+  }
+
+  /** 游戏中的视角按钮文字 */
+  setCamLabel(mode) {
+    for (const id of ['cam-btn', 'vs-cam']) $(id).textContent = t('cam_' + (mode ?? 'chase'));
   }
 
   // ---------------- 双人对战 ----------------

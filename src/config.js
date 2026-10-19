@@ -73,8 +73,14 @@ export const CONFIG = {
   sea: { dock: 280, length: 720, landing: 240, launchPower: 14, landPower: 11 },
   // 速度分级：开局慢，分数每突破一个门槛升一级，整体速度（玩家、警车、车流）按 pace 倍率慢慢加快
   pace: {
-    start: 0.62, step: 0.07, max: 1.25,
-    scores: [0, 800, 2000, 3600, 5600, 8000, 11000, 14500, 18500, 23000], // 第 n 级需要的分数
+    start: 0.66, step: 0.065, max: 1.25,
+    scores: [0, 600, 1500, 2800, 4400, 6400, 8800, 11600, 14800, 18500], // 第 n 级需要的分数
+  },
+  // 越往后越难（heat = 速度等级 1~10）：逆行来车、钉刺带、更多更凶的警车
+  heat: {
+    oncomingFrom: 2, oncomingGap: [5, 9], oncomingSpeed: [14, 22], oncomingDamage: 30, // 逆行来车：正面撞上伤害很大
+    spikesFrom: 3, spikesChance: 0.45, spikesDamage: 16, // 钉刺带：路障的一种，压到爆胎
+    police: 0.07, ram: 0.07, bust: 0.05, // 每升一级：警车数量 / 撞击频率 / 被捕速度 +x%
   },
   spawn: { policeBase: 2, policePerStar: 1, policeMax: 8, trafficCount: 9, starDistance: 450, maxStars: 5 },
   score: { perMeter: 1, police: 300, swat: 600, tank: 1500, civilian: 50, prop: 20, comboWindow: 2.5 },

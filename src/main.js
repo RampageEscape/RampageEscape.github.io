@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { Road, BIOMES, BIOME_IDS, WATER_Y, laneOffset } from './world/Road.js';
+import { Road, BIOMES, BIOME_IDS, WATER_Y, laneOffset, nearestLane } from './world/Road.js';
 import { LevelManager } from './world/LevelManager.js';
 import { WorldGenerator } from './world/WorldGenerator.js';
 import { Spawner } from './world/Spawner.js';
@@ -22,7 +22,7 @@ import { Cannon } from './player/Cannon.js';
 import { TIERS } from './player/Vehicles.js';
 import { UPGRADES, rollUpgrades, applyUpgrade } from './player/Upgrades.js';
 import { LEVELS } from './data/levels.js';
-import { loadModels, loadHero } from './models/ModelLibrary.js';
+import { loadModels, loadHero, loadEnvModels } from './models/ModelLibrary.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { Progression } from './systems/Progression.js';
 import { AudioEngine } from './audio/AudioEngine.js';
@@ -98,9 +98,11 @@ class Game {
     this.ortho.layers.enable(2);
     this.persp = new THREE.PerspectiveCamera(62, 1, 0.3, 700);
     this.rigs = [makeRig(this.persp, 2), makeRig(new THREE.PerspectiveCamera(62, 1, 0.3, 700), 3)];
-    this.cameraMode = this.load('camera') || 'chase';
-    this.camera = this.cameraMode === 'chase' ? this.persp : this.ortho;
-    CONFIG.world.tallNear = this.cameraMode === 'chase';
+    // 视角：chase = 第三人称（GTA 式，车后上方）/ first = 第一人称（驾驶座）/ iso = 俯视
+    this.cameraMode = ['chase', 'first', 'iso'].includes(this.load('camera')) ? this.load('camera') : 'chase';
+    this.camera = this.cameraMode === 'iso' ? this.ortho : this.persp;
+    CONFIG.world.tallNear = this.cameraMode !== 'iso';
+    for (const r of this.rigs) r.cam.near = this.cameraMode === 'first' ? 0.05 : 0.3;
     this.camOffset = new THREE.Vector3(...CONFIG.camera.offset);
     this.camTarget = new THREE.Vector3();
 
@@ -165,6 +167,7 @@ class Game {
       onFire: (i) => { if (this.state === 'playing') this.cannons[i]?.fire(); },
     });
     addEventListener('keydown', (e) => {
+      if (e.code === 'KeyC' && !e.repeat && (this.state === 'playing' || this.state === 'countdown')) this.cycleCamera();
       if (!this.versus && (e.code === 'KeyF' || e.code === 'KeyJ')) this.fire();
       if (e.code === 'Escape' || e.code === 'KeyP') this.state === 'paused' ? this.resume() : this.pause();
     });
@@ -203,7 +206,9 @@ class Game {
     this.fx.onSplash = (pos, s) => this.audio.splash(s, att(pos));
     hud.onToggleMusic = () => this.audio.toggleMusic();
     hud.onToggleSfx = () => this.audio.toggleSfx();
-    hud.onToggleCamera = () => this.setCameraMode(this.cameraMode === 'chase' ? 'iso' : 'chase');
+    hud.onToggleCamera = () => this.cycleCamera(false);
+    hud.onCycleCamera = () => this.cycleCamera();
+    hud.setCamLabel(this.cameraMode);
     hud.settings = () => ({ music: this.audio.musicOn, sfx: this.audio.sfxOn, camera: this.cameraMode });
     setDifficulty(this.load('difficulty') || 'normal');
     hud.onDifficulty = (id) => { setDifficulty(id); this.save('difficulty', id); hud.showTitle(); };
@@ -320,7 +325,7 @@ class Game {
     this.setVersus(false);
     setDifficulty(RUN.id);
     RUN.pace = CONFIG.pace.start; // 速度分级从第 1 级开始（慢）
-    this.speedLevel = 1;
+    RUN.heat = this.speedLevel = 1;
     this.resetRun(opts);
     this.prog.startRun();
     this.prog.rewardMul = RUN.diff.reward;
@@ -346,14 +351,14 @@ class Game {
       this.scene.add(this.player2.mesh);
       this.players = [this.player, this.player2];
       this.modeBeforeVersus = this.cameraMode;
-      if (this.cameraMode !== 'chase') this.setCameraMode('chase', false);
+      if (this.cameraMode === 'iso') this.setCameraMode('chase', false); // 分屏没有俯视角
     } else {
       this.players = [this.player];
       if (this.player2) this.scene.remove(this.player2.mesh);
       if (this.modeBeforeVersus && this.modeBeforeVersus !== this.cameraMode) this.setCameraMode(this.modeBeforeVersus, false);
     }
-    for (const p of this.players) p.tag.visible = on;
-    this.player.tag.visible = on;
+    this.updateTags();
+    this.hud.setCamLabel(this.cameraMode);
     this.resize();
   }
 
@@ -361,7 +366,7 @@ class Game {
     this.setVersus(true);
     setDifficulty(RUN.id);
     RUN.pace = CONFIG.pace.start;
-    this.speedLevel = 1;
+    RUN.heat = this.speedLevel = 1;
     this.resetRun({ mode: 'versus' });
     this.prog.startRun();
     this.prog.rewardMul = RUN.diff.reward;
@@ -527,7 +532,7 @@ class Game {
 
   /** 贴着车擦过去（没撞到）：加分、加暴走值、冲刺冷却缩短 */
   onNearMiss(e, p = this.player) {
-    const pts = Math.round(150 * RUN.diff.reward);
+    const pts = Math.round(150 * RUN.diff.reward * (e.oncoming ? 2 : 1)); // 擦过逆行车：双倍
     p.score += pts;
     this.prog.earn(2);
     p.dashCooldown = Math.max(0, p.dashCooldown - 0.6);
@@ -537,7 +542,7 @@ class Game {
     const mid = e.mesh.position.clone().lerp(p.mesh.position, 0.5);
     mid.y = p.mesh.position.y + 0.8;
     for (let i = 0; i < 8; i++) this.fx.spark(mid, new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 4, (Math.random() - 0.5) * 8), 0.3, [0.6, 2.4, 3.4]);
-    this.popAt(p, `${t('nearMiss')} +${pts}`, mid);
+    this.popAt(p, `${t(e.oncoming ? 'oncomingMiss' : 'nearMiss')} +${pts}`, mid, e.oncoming);
     this.audio.whoosh(e.lateral > p.lateral ? -0.6 : 0.6);
     this.missionEvent('nearMiss');
   }
@@ -645,6 +650,23 @@ class Game {
     this.feel.shake.add(0.25);
     this.flashFor(p, '#5ad1ff', 0.3);
     this.popAt(p, t('shieldBlock'), p.mesh.position);
+  }
+
+  /** 压到钉刺带：爆胎（速度骤降、掉血、火花） */
+  onSpikes(p, strip) {
+    this.popAt(p, t('flatTire'), p.mesh.position, true);
+    this.audio.impact(1.3, 1);
+    this.feel.shake.add(0.35);
+    const pos = p.mesh.position.clone();
+    pos.y += 0.3;
+    for (let i = 0; i < 26; i++) this.fx.spark(pos, new THREE.Vector3((Math.random() - 0.5) * 10, Math.random() * 5, (Math.random() - 0.5) * 10), 0.5);
+    this.flashFor(p, '#ff7a1a', 0.3);
+  }
+
+  /** 和逆行车相撞 */
+  onHeadOn(p, headOn) {
+    this.popAt(p, t('headOn'), p.mesh.position, true);
+    this.feel.shake.add(headOn ? 0.6 : 0.3);
   }
 
   /** 双人对战：用冲刺撞飞对手 */
@@ -842,7 +864,7 @@ class Game {
     let lv = 1;
     while (lv < C.scores.length && score >= C.scores[lv]) lv++;
     if (lv > this.speedLevel) {
-      this.speedLevel = lv;
+      this.speedLevel = RUN.heat = lv; // 难度跟着速度一起升级
       this.hud.banner('speedUp', { n: lv });
       this.audio.speedUp();
       this.feel.shake.add(0.15);
@@ -865,7 +887,8 @@ class Game {
     if (p.comboTimer > 0 && (p.comboTimer -= dt) <= 0) p.combo = 0;
     // 被捕判定：被 2 辆以上警车贴身包夹时，被捕条持续上涨（冲刺、暴走、飞在空中时不会被捕）
     const boxed = !p.isDashing && !p.airborne && p.rampage <= 0 && this.spawner.copsNear(p, 5.5, 5.5) >= 2;
-    p.bust = clamp(p.bust + (boxed ? 0.55 * RUN.diff.bust : -0.7) * dt, 0, 1);
+    const bustRate = 0.55 * RUN.diff.bust * (1 + CONFIG.heat.bust * (RUN.heat - 1));
+    p.bust = clamp(p.bust + (boxed ? bustRate : -0.7) * dt, 0, 1);
     this.checkNearMiss(p);
   }
 
@@ -884,9 +907,15 @@ class Game {
     } else {
       // 路口：决策区内按车道选出口，并显示岔路面板
       this.hud.showJunction(this.levels.junction, lead.z);
-      // 路障预警：前方 warnDistance 米内有路障就显示 UI 车道示意
+      // 路障预警：前方 warnDistance 米内有路障就显示 UI 车道示意（钉刺带标题不一样）
       const rb = this.spawner.nextBarricade(lead.z, CONFIG.barricade.warnDistance);
-      this.hud.showRoadblock(rb ? rb.blocked : null);
+      this.hud.showRoadblock(rb ? rb.blocked : null, rb?.spikes);
+      // 逆行来车预警：前方 150 米内有迎面开来的车，显示它在哪条车道
+      const lanes = [];
+      for (const c of this.spawner.traffic) {
+        if (c.oncoming && c.collidable && c.z > lead.z && c.z - lead.z < 150) lanes.push(nearestLane(c.lateral));
+      }
+      this.hud.showOncoming(lanes.length ? lanes : null);
     }
     this.levels.followLane(lead.lane, lead.z);
 
@@ -983,8 +1012,8 @@ class Game {
   hideNearCamera() {
     const chase = this.cameraMode === 'chase', cams = this.rigs.map((r) => r.cam.position);
     const apply = (obj, skip = -1) => {
-      const near0 = chase && skip !== 0 && obj.position.distanceToSquared(cams[0]) < 30;
-      const near1 = this.versus && skip !== 1 && obj.position.distanceToSquared(cams[1]) < 30;
+      const near0 = chase && skip !== 0 && obj.position.distanceToSquared(cams[0]) < 42;
+      const near1 = chase && this.versus && skip !== 1 && obj.position.distanceToSquared(cams[1]) < 42;
       let mask = 1;
       if (near0 || near1) mask = (near0 ? 0 : 1 << 2) | (this.versus && !near1 ? 1 << 3 : 0) || 1 << 1;
       if (mask === obj.userData.camMask) return;
@@ -995,32 +1024,53 @@ class Game {
     if (this.versus) this.players.forEach((p) => apply(p.mesh, p.index));
   }
 
-  /** 切换视角：俯视（等距正交） / 追尾（透视，车后方）。save = false 时不记住（双人对战临时切换） */
+  /** 头顶 P1/P2 标签：双人对战才显示；第一人称时会挡住视线，隐藏 */
+  updateTags() {
+    for (const p of [this.player, this.player2]) if (p) p.tag.visible = this.versus && this.cameraMode !== 'first';
+  }
+
+  /** 视角快速切换：第三人称 → 第一人称 → 俯视（双人分屏只在前两种之间切） */
+  cycleCamera(announce = true) {
+    const order = this.versus ? ['chase', 'first'] : ['chase', 'first', 'iso'];
+    const next = order[(order.indexOf(this.cameraMode) + 1) % order.length];
+    this.setCameraMode(next);
+    this.hud.setCamLabel(next);
+    if (announce) this.hud.banner('cam_' + next);
+  }
+
+  /** 切换视角。save = false 时不记住（双人对战临时切换） */
   setCameraMode(mode, save = true) {
     this.cameraMode = mode;
-    // 俯视角时镜头一侧的楼要压低：切换视角后按新规则重建周围的区块（在暂停菜单里切换，看不到重建过程）
-    const tall = mode === 'chase';
+    // 俯视角时镜头一侧的楼要压低：切换视角后按新规则重建周围的区块
+    const tall = mode !== 'iso';
     if (CONFIG.world.tallNear !== tall) {
       CONFIG.world.tallNear = tall;
       this.world.reset();
       this.world.update(this.leader.z, this.trailZ);
     }
     if (save) this.save('camera', mode);
-    this.camera = mode === 'chase' ? this.persp : this.ortho;
+    this.camera = mode === 'iso' ? this.ortho : this.persp;
     this.renderPass.camera = this.camera;
-    for (const r of this.rigs) r.init = false;
+    for (const r of this.rigs) {
+      r.init = false;
+      r.cam.near = mode === 'first' ? 0.05 : 0.3; // 第一人称镜头在车里，近裁剪面要很近
+      r.cam.updateProjectionMatrix();
+    }
+    this.updateTags();
+    this.hud.setCamLabel(mode);
     this.resize();
   }
 
   updateCamera(dt) {
+    for (const p of this.players) p.firstPerson = this.cameraMode === 'first';
     if (this.versus) {
-      this.players.forEach((p, i) => this.updateChaseCamera(dt, this.rigs[i], p));
+      this.players.forEach((p, i) => this.updatePerspCamera(dt, this.rigs[i], p));
       this.camTarget.copy(this.rigs[0].target).lerp(this.rigs[1].target, 0.5); // 阴影、地面、雪跟着两人中间
       this.placeSun();
       return;
     }
-    if (this.cameraMode === 'chase') {
-      this.updateChaseCamera(dt, this.rigs[0], this.player);
+    if (this.cameraMode !== 'iso') {
+      this.updatePerspCamera(dt, this.rigs[0], this.player);
       this.camTarget.copy(this.rigs[0].target);
       this.fx.setPixelScale(this.renderer.domElement.height / (2 * Math.tan((this.persp.fov * Math.PI) / 360)), true);
       this.placeSun();
@@ -1049,27 +1099,54 @@ class Game {
     this.sun.target.position.copy(this.camTarget);
   }
 
+  updatePerspCamera(dt, rig, p) {
+    if (this.cameraMode === 'first') this.updateFirstPerson(dt, rig, p);
+    else this.updateChaseCamera(dt, rig, p);
+  }
+
   /**
-   * 追尾视角：镜头在车后上方，看向前方道路。
+   * 第一人称：镜头在驾驶座的眼睛位置，跟着车头方向；变道时随车身轻微侧倾，冲刺时视野变广。
+   * 真车模型有内饰（仪表台、方向盘、A 柱），所以看得到“坐在车里”的感觉；开船时在驾驶台上。
+   */
+  updateFirstPerson(dt, rig, p) {
+    const cam = rig.cam, m = p.mesh, u = m.userData;
+    // 眼睛高度：真车 / Kenney 车 = 车顶高度的 92%（坐在驾驶座、从挡风玻璃往外看）；坦克在炮塔上方；船在驾驶台
+    const eye = (u.boat ? 1.5 : u.kit ? (u.topY ?? 1.4) * 0.92 : (u.dims?.H ?? 1.6) * 1.05) * p.sizeMul;
+    const h = m.rotation.y, fwd = (u.boat ? 0 : 0.08) * p.length * p.sizeMul;
+    cam.position.set(m.position.x + Math.sin(h) * fwd, m.position.y + eye, m.position.z + Math.cos(h) * fwd);
+    cam.position.addScaledVector(this.feel.shake.offset, 0.25);
+    const ahead = Road.sample(p.z + 30, p.lateral * 0.6 + p.latVel * 0.12, SAMPLE);
+    if (!rig.init) { rig.target.set(ahead.x, 0, ahead.z); rig.init = true; }
+    rig.target.x = damp(rig.target.x, ahead.x, 10, dt);
+    rig.target.z = damp(rig.target.z, ahead.z, 10, dt);
+    cam.lookAt(rig.target.x, m.position.y + eye * 0.78, rig.target.z);
+    cam.rotateZ(-(p.root?.rotation.z ?? 0) * 0.8 + this.feel.shake.roll * 0.3);
+    const fov = 72 + (p.isDashing ? 12 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 12;
+    cam.fov = damp(cam.fov, fov / this.feel.zoom, 6, dt);
+    cam.updateProjectionMatrix();
+  }
+
+  /**
+   * 第三人称（GTA 式）：镜头在车后上方较远处，看向前方道路，画面里能看到整辆车和周围的警车。
    * 位置、朝向都做平滑，转 90° 弯时镜头会自然甩过去；速度越快镜头拉得越远、视野越广（速度感）。
    */
   updateChaseCamera(dt, rig, p) {
     const cam = rig.cam;
     rig.yaw = rig.init ? dampAngle(rig.yaw, Road.heading(p.z), 4, dt) : Road.heading(p.z);
     const h = rig.yaw, w = Road.sample(p.z, p.lateral * 0.8, SAMPLE);
-    const back = 7.2 + p.speed * 0.04, up = 3.1 + p.y * 0.5 + p.waterY * 0.8;
+    const back = 10.5 + p.speed * 0.06, up = 4.4 + p.y * 0.5 + p.waterY * 0.8;
     const tx = w.x - Math.sin(h) * back, tz = w.z - Math.cos(h) * back;
     if (!rig.init) { rig.pos.set(tx, up, tz); rig.init = true; }
     rig.pos.x = damp(rig.pos.x, tx, 9, dt);
     rig.pos.y = damp(rig.pos.y, up, 6, dt);
     rig.pos.z = damp(rig.pos.z, tz, 9, dt);
-    const ahead = Road.sample(p.z + 16, p.lateral * 0.5, {});
+    const ahead = Road.sample(p.z + 20, p.lateral * 0.5, {});
     rig.target.set(ahead.x, 0, ahead.z);
     const shake = this.versus ? 0.5 : 1;
     cam.position.copy(rig.pos).addScaledVector(this.feel.shake.offset, shake);
-    cam.lookAt(ahead.x, 1.2 + p.y * 0.3 + p.waterY, ahead.z);
+    cam.lookAt(ahead.x, 1.0 + p.y * 0.3 + p.waterY, ahead.z);
     cam.rotateZ(this.feel.shake.roll * 0.6 * shake);
-    const fov = 62 + (p.isDashing ? 10 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 10; // 越快视野越广
+    const fov = 58 + (p.isDashing ? 10 : 0) + (p.rampage > 0 ? 6 : 0) + (this.speedKick ?? 0) * 8 + (RUN.pace - 1) * 10; // 越快视野越广
     cam.fov = damp(cam.fov, fov / this.feel.zoom, 6, dt);
     cam.updateProjectionMatrix();
   }
@@ -1108,10 +1185,11 @@ for (const k of RUN_STATS) {
 }
 
 // 先加载 3D 模型（最多等 10 秒），再启动游戏；加载失败的模型会自动用方块模型代替
-Promise.race([loadModels(), new Promise((r) => setTimeout(r, 10000))]).finally(() => {
+Promise.race([Promise.all([loadModels(), loadEnvModels()]), new Promise((r) => setTimeout(r, 10000))]).finally(() => {
   window.game = new Game(); // 挂到 window 上方便在控制台调试
   // 高精度主角车在后台加载，好了就换上（开着跑车/赛车时）
   loadHero(window.game.renderer).then(() => {
+    window.game.spawner.upgradeModels(); // 警车、私家车换成真车
     for (const p of window.game.players.concat(window.game.player2 ?? [])) {
       if (p.tierIndex <= 1 && !p.onWater) { p.setTier(p.tierIndex); p.syncMesh(0); }
     }

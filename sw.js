@@ -1,7 +1,7 @@
 // 离线缓存（Service Worker）：让网站可以“安装”成手机 App，玩过一次之后没网也能打开。
 // 策略：网络优先——联网时永远拿最新版本，同时存一份；断网时用存下来的那份。
 // 改了这个文件里的 CACHE 名字，旧缓存会在新版本启用时被清掉。
-const CACHE = 'rampage-escape-v2';
+const CACHE = 'rampage-escape-v3';
 const CORE = ['./', 'index.html', 'style.css', 'manifest.webmanifest', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
